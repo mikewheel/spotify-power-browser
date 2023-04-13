@@ -73,15 +73,24 @@ class SpotifyAuthCodeResource:
         with open(SPOTIFY_API_TOKEN_FILE, "w") as f:
             f.write(access_token)
 
-        print(dedent(f'''
-        Access Token: {access_token}
-        Token Type: {token_type}
-        Scope: {scope}
-        Expires in: {expires_in}
-        Refresh Token: {refresh_token}
-        '''))
-
         resp.status = falcon.HTTP_200
+        resp.content_type = 'text/html'
+        resp.text = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+        </head>
+        <body>
+            <h1>Success!</h1>
+            <ul>
+            <li>Access Token: {access_token}</li>
+            <li>Token Type: {token_type}</li>
+            <li>Scope: {scope}</li>
+            <li>Expires in: {expires_in}</li>
+            <li>Refresh Token: {refresh_token}</li>
+            </ul>
+        </body>
+        </html>'''
 
 
 def serve_the_app():
@@ -90,7 +99,7 @@ def serve_the_app():
     app.add_route('/callback', SpotifyAuthCodeResource())
 
     with make_server('', 8000, app) as httpd:
-        print('Starting to serve on port 8000...')
+        print('Starting to serve at http://localhost:8000/login')
         # Serve until process is killed
         httpd.serve_forever()
 
