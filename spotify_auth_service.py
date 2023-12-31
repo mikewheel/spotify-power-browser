@@ -12,6 +12,7 @@ SPOTIFY_CLIENT_ID_FILE = BASE_DIR / "secrets" / "spotify_client_id.secret"
 SPOTIFY_CLIENT_SECRET_FILE = BASE_DIR / "secrets" / "spotify_client_secret.secret"
 SPOTIFY_AUTHORIZATION_CODE_FILE = BASE_DIR / "secrets" / "spotify_authorization_code.secret"
 SPOTIFY_API_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_api_token.secret"
+SPOTIFY_REFRESH_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_refresh_token.secret"
 
 with open(SPOTIFY_CLIENT_ID_FILE, "r") as f:
     SPOTIFY_CLIENT_ID = f.read()
@@ -72,6 +73,9 @@ class SpotifyAuthCodeResource:
 
         with open(SPOTIFY_API_TOKEN_FILE, "w") as f:
             f.write(access_token)
+
+        with open(SPOTIFY_REFRESH_TOKEN_FILE, "w") as f:
+            f.write(refresh_token)
 
         resp.status = falcon.HTTP_200
         resp.content_type = 'text/html'
