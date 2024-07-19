@@ -1,7 +1,6 @@
 from datetime import date
 from json import dump
 from pathlib import Path
-from pprint import pprint
 from time import sleep
 
 import requests
@@ -23,8 +22,16 @@ MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 
 while True:
     print(f'GET: {next_request_url} ...')
-    r = requests.get(next_request_url,
-                     headers={"Authorization": f'Bearer {SPOTIFY_API_TOKEN}'})
+
+    try:
+        r = requests.get(
+            next_request_url,
+            headers={"Authorization": f'Bearer {SPOTIFY_API_TOKEN}'}
+        )
+    except requests.exceptions.ConnectionError:  # Connection reset by peer
+        print("Connection reset by peer. Retrying...")
+        sleep(5)
+        continue
 
     try:
         r.raise_for_status()
@@ -52,6 +59,7 @@ while True:
 
         else:
             raise e
+
     else:
         http_500_error_count = 0
 
