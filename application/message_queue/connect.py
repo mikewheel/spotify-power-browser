@@ -90,6 +90,6 @@ def publish_message_to_exchange(channel, exchange, routing_key, body):
         routing_key=routing_key,
         body=body
     )
-    logger.info(
+    logger.debug(
         f'Published to exchange {exchange} with routing key {routing_key}'
     )

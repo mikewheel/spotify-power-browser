@@ -30,9 +30,8 @@ with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
 
 
 def make_spotify_api_call(ch, method, properties, body):
-
     msg = loads(body)
-    logger.info(f'Received message from queue:\n{pformat(body)}')
+    logger.info(f'Received message from queue:\n{pformat(msg)}')
 
     request_url = msg["request_url"]
     depth_of_search = msg["depth_of_search"]
@@ -92,7 +91,7 @@ def make_spotify_api_call(ch, method, properties, body):
                 # Send a request for the next URL
                 SpotifyRequestFactory.request_url(next_request_url, depth_of_search=depth_of_search)
             else:
-                logger.info(f'Reached the end of pagination for URL {request_url}')
+                logger.debug(f'Reached the end of pagination for URL {request_url}')
             
             response_data_with_request = {
                 "request_url": request_url,
@@ -137,8 +136,10 @@ def make_spotify_api_call(ch, method, properties, body):
                     body=dumps(response_data_with_request)
                 )
 
+            logger.info(f'Successfully published response from {request_url} to all exchanges.')
+
             connection.close()
-            sleep(5)  # Tunable to avoid hitting the rate limit, but maybe doesn't belong here...
+            return
 
 
 def entrypoint():

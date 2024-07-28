@@ -22,9 +22,9 @@ class StructuredLoggingFormatter(Formatter):
         return dumps(record.__dict__, default=default_serialize)
 
 
-def get_logger(logger_name):
+def get_logger(logger_name, log_level=INFO):
     logger = getLogger(logger_name)
-    logger.setLevel(INFO)
+    logger.setLevel(log_level)
     logger.propagate = False  # https://stackoverflow.com/a/50910770/8857601
 
     default_handler = StreamHandler(stream=stdout)

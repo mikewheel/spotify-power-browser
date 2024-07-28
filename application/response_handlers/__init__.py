@@ -1,0 +1,4 @@
+from application.response_handlers.albums import AlbumsParser
+from application.response_handlers.artists import ArtistsParser
+from application.response_handlers.liked_songs import LikedSongsPlaylistParser
+from application.response_handlers.tracks import TracksParser

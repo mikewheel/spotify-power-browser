@@ -1,28 +1,30 @@
+from pathlib import Path
+from json import dump
+
 import pandas
 
+from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
 
+logger = get_logger(__name__)
 
-class SpotifyResponseController:
-    """
-    Pull Spotify API responses off the queue and dynamically dispatch them to the appropriate response parser.
-    """
-
-    @classmethod
-    def dispatch_to_response_parser(cls, msg):
-        # TODO: look at the message coming off the queue, inspect either the URL or some other attribute
-        #       and then decide which one of the parser classes you want to dispatch to
-        raise NotImplementedError()
+BASE_DIR = Path(__file__).parent.parent.parent
+DATA_DIR = BASE_DIR / "data"
 
 
 class LikedSongsPlaylistParser:
     """
     Parses responses from the Liked Songs endpoint: https://api.spotify.com/v1/me/tracks
+    Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
     """
 
-    def __init__(self, response):
+    URL_PATTERN = "https://api.spotify.com/v1/me/tracks"
+    DISK_LOCATION = DATA_DIR / "responses" / "liked_songs"
+
+    def __init__(self, request_url, depth_of_search, response):
+        self.request_url = request_url
+        self.depth_of_search = depth_of_search
         self.response = response
-        self.df = self.parse_response()
 
     def parse_response(self):
         my_liked_songs = self.response["items"]
@@ -76,49 +78,43 @@ class LikedSongsPlaylistParser:
         df = pandas.DataFrame(rows_list)
         return df
 
-    def store_data(self):
+    def write_to_disk(self):
+        output_file = self.DISK_LOCATION / f"liked_songs_{self.response['offset']}.json"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w") as f:
+            dump(self.response, f, indent=4)
+
+        logger.info(f'SUCCESS: {output_file.name}')
+
+    def write_to_sqlite(self):
         raise NotImplementedError()
 
-    @property
-    def song_ids(self):
-        raise NotImplementedError()
-
-    @property
-    def artist_ids(self):
-        raise NotImplementedError()
-
-    def follow_links(self):
-        for song in self.song_ids:
-            SpotifyRequestFactory.request_song(song_uuid=song)
-
-        for artist in self.artist_ids:
-            SpotifyRequestFactory.request_artist(artist)
-
-
-class FollowedPlaylistsResponseParser:
-    """
-    Parses responses from the Followed Playlists endpoint: https://api.spotify.com/v1/me/playlists
-    """
-
-    def __init__(self, response):
-        self.response = response
-        self.df = self.parse_response()
-
-    def parse_response(self):
-        raise NotImplementedError()
-
-    def store_data(self):
-        raise NotImplementedError()
-
-    @property
-    def song_ids(self):
+    def write_to_neo4j(self):
         raise NotImplementedError()
 
     def follow_links(self):
-        for song in self.song_ids:
-            SpotifyRequestFactory.request_song(song_uuid=song)
+        if self.depth_of_search <= 0:
+            logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
+            return
 
+        for song in self.response["items"]:
 
-def entrypoint():
-    msg = None  # TODO: read from queue "Spotify API responses"
-    SpotifyResponseController.dispatch_to_response_parser(msg)
+            logger.info(f'Following song: {song["track"]["name"]}')
+            SpotifyRequestFactory.request_url(
+                url=song["track"]["href"],
+                depth_of_search=(self.depth_of_search - 1)
+            )
+
+            logger.info(f'Following album: {song["track"]["album"]["name"]}')
+            SpotifyRequestFactory.request_url(
+                url=song["track"]["album"]["href"],
+                depth_of_search=(self.depth_of_search - 1)
+            )
+
+            for artist in song["track"]["artists"]:
+                logger.info(f'Following artist on song: {artist["name"]}')
+                SpotifyRequestFactory.request_url(
+                    url=artist["href"],
+                    depth_of_search=(self.depth_of_search - 1)
+                )

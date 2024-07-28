@@ -1,7 +1,7 @@
 import requests
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent.parent
 SPOTIFY_CLIENT_ID_FILE = BASE_DIR / "secrets" / "spotify_client_id.secret"
 SPOTIFY_API_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_api_token.secret"
 SPOTIFY_REFRESH_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_refresh_token.secret"
