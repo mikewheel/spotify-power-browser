@@ -1,13 +1,12 @@
 """This module contains the code for acquiring tokens to use the Spotify API."""
 from pathlib import Path
-from textwrap import dedent
 from urllib.parse import urlencode
 from wsgiref.simple_server import make_server
 
 import falcon
 import requests
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent.parent
 SPOTIFY_CLIENT_ID_FILE = BASE_DIR / "secrets" / "spotify_client_id.secret"
 SPOTIFY_CLIENT_SECRET_FILE = BASE_DIR / "secrets" / "spotify_client_secret.secret"
 SPOTIFY_AUTHORIZATION_CODE_FILE = BASE_DIR / "secrets" / "spotify_authorization_code.secret"
@@ -51,16 +50,18 @@ class SpotifyAuthCodeResource:
 
         print("Requesting API Token from Spotify...")
 
-        r = requests.post('https://accounts.spotify.com/api/token',
-                      data={
-                        "code": authorization_code,
-                        "redirect_uri": "http://localhost:8000/callback",
-                        "grant_type": 'authorization_code'
-                      },
-                      auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
-                      headers={
-                          "Content-Type": "application/x-www-form-urlencoded"
-                      })
+        r = requests.post(
+            'https://accounts.spotify.com/api/token',
+            data={
+                "code": authorization_code,
+                "redirect_uri": "http://localhost:8000/callback",
+                "grant_type": 'authorization_code'
+            },
+            auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
+            headers={
+              "Content-Type": "application/x-www-form-urlencoded"
+            }
+        )
 
         r.raise_for_status()
         r = r.json()
