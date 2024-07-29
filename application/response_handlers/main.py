@@ -1,18 +1,16 @@
 import argparse
-import pandas
-
 from json import loads
 from pathlib import Path
-from pprint import pformat
 from urllib.parse import urlparse
 
-from application import config
-from application.authentication.refresh_token import refresh_spotify_auth
+from application.graph_database.connect import connect_to_neo4j
+from application.graph_database.initialize_database_environment import (
+    initialize_database_environment as initialize_neo4j_environment
+)
 from application.loggers import get_logger
 from application.message_queue.connect import (
     connect_to_rabbitmq_exchange,
-    bind_queue_to_exchange,
-    publish_message_to_exchange,
+    bind_queue_to_exchange
 )
 from application.message_queue.constants import ResponsesExchange
 from application.response_handlers import (
@@ -24,8 +22,8 @@ from application.response_handlers import (
 
 logger = get_logger(__name__)
 
-BASE_DIR = Path(__file__).parent.parent
-DATA_DIR = BASE_DIR / "data"
+PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
+NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
 
 
 class SpotifyResponseController:
@@ -81,7 +79,8 @@ class SpotifyResponseController:
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_SQLITE.value:
             response_handler(request_url, depth_of_search, response).write_to_sqlite()
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_NEO4J.value:
-            response_handler(request_url, depth_of_search, response).write_to_neo4j()
+            global neo4j_driver
+            response_handler(request_url, depth_of_search, response).write_to_neo4j(driver=neo4j_driver)
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_FOLLOW_LINKS.value:
             response_handler(request_url, depth_of_search, response).follow_links()
         else:
@@ -131,6 +130,11 @@ if __name__ == '__main__':
         ResponsesExchange.ROUTING_KEY_FOLLOW_LINKS.value
     ]:
         raise ValueError(f'Unrecognized response handler action: {RESPONSE_HANDLER_ACTION}')
+
+    # Set up database drivers and environment
+    if RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_NEO4J.value:
+        neo4j_driver = connect_to_neo4j(NEO4J_CREDENTIALS_FILE)
+        initialize_neo4j_environment(driver=neo4j_driver)
 
     logger.info(f'Handling responses with action: {RESPONSE_HANDLER_ACTION}')
 

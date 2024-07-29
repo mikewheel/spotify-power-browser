@@ -36,7 +36,7 @@ class TracksParser:
     def write_to_sqlite(self):
         raise NotImplementedError()
 
-    def write_to_neo4j(self):
+    def write_to_neo4j(self, driver):
         raise NotImplementedError()
 
     def follow_links(self):

@@ -2,14 +2,19 @@ from pathlib import Path
 from json import dump
 
 import pandas
+from jinja2 import Environment
 
+from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
 
 logger = get_logger(__name__)
 
-BASE_DIR = Path(__file__).parent.parent.parent
-DATA_DIR = BASE_DIR / "data"
+PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
+DATA_DIR = PROJECT_ROOT_DIR / "data"
+GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
+
+jinja_environment = Environment()
 
 
 class LikedSongsPlaylistParser:
@@ -90,8 +95,53 @@ class LikedSongsPlaylistParser:
     def write_to_sqlite(self):
         raise NotImplementedError()
 
-    def write_to_neo4j(self):
-        raise NotImplementedError()
+    def write_to_neo4j(self, driver, database="neo4j"):
+        with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_liked_song.jinja", "r") as f:
+            query_text = f.read()
+
+        insert_template = jinja_environment.from_string(query_text)
+
+        tracks = [item["track"] | {"is_liked_song": True, "added_at": item["added_at"]}
+                  for item in self.response["items"]]
+
+        # insert_query_with_data = insert_template.render(tracks=tracks)
+
+        query = """
+        UNWIND $tracks as track
+        MERGE (t:Track {id: track.id})
+        ON CREATE SET
+            t.id = track.id,
+            t.name = track.name,
+            t.explicit = track.explicit,
+            t.is_local = track.is_local,
+            t.popularity = track.popularity,
+            t.duration_ms = track.duration_ms,
+            t.type = track.type,
+            t.uri = track.uri,
+            t.href = track.href,
+            t.spotify_url = track.spotify_url
+        MERGE (al:Album {id: track.album.id})
+        ON CREATE SET
+            al.id = track.album.id,
+            al.name = track.album.name,
+            al.release_date = track.album.release_date,
+            al.release_date_precision = track.album.release_date_precision,
+            al.total_tracks = track.album.total_tracks,
+            al.album_type = track.album.album_type,
+            al.spotify_url = track.album.spotify_url,
+            al.type = track.album.type,
+            al.uri = track.album.uri,
+            al.href = track.album.href,
+            al.spotify_url = track.album.spotify_url
+        ;
+        """
+
+        execute_query_against_neo4j(
+            query=query,
+            driver=driver,
+            database=database,
+            tracks=tracks
+        )
 
     def follow_links(self):
         if self.depth_of_search <= 0:
@@ -118,3 +168,28 @@ class LikedSongsPlaylistParser:
                     url=artist["href"],
                     depth_of_search=(self.depth_of_search - 1)
                 )
+
+
+if __name__ == "__main__":
+    from json import loads
+
+    from application.graph_database.connect import connect_to_neo4j
+    from application.graph_database.initialize_database_environment import (
+        initialize_database_environment as initialize_neo4j_environment
+    )
+
+    NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
+
+    neo4j_driver = connect_to_neo4j(NEO4J_CREDENTIALS_FILE)
+    initialize_neo4j_environment(driver=neo4j_driver)
+
+    with open(DATA_DIR / "responses" / "liked_songs" / "liked_songs_0.json", "r") as f:
+        response = loads(f.read())
+
+    parser = LikedSongsPlaylistParser(
+        request_url=None,
+        depth_of_search=None,
+        response=response
+    )
+
+    parser.write_to_neo4j(driver=neo4j_driver)

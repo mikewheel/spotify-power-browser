@@ -6,7 +6,7 @@ from time import sleep
 import requests
 
 from application import config
-from application.authentication.refresh_token import refresh_spotify_auth
+from application.spotify_authentication.refresh_token import refresh_spotify_auth
 from application.loggers import get_logger
 from application.message_queue.connect import (
     connect_to_rabbitmq_exchange,
