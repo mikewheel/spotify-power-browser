@@ -96,15 +96,9 @@ class LikedSongsPlaylistParser:
         raise NotImplementedError()
 
     def write_to_neo4j(self, driver, database="neo4j"):
-        with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_liked_song.jinja", "r") as f:
-            query_text = f.read()
-
-        insert_template = jinja_environment.from_string(query_text)
 
         tracks = [item["track"] | {"is_liked_song": True, "added_at": item["added_at"]}
                   for item in self.response["items"]]
-
-        # insert_query_with_data = insert_template.render(tracks=tracks)
 
         query = """
         UNWIND $tracks as track
@@ -120,6 +114,7 @@ class LikedSongsPlaylistParser:
             t.uri = track.uri,
             t.href = track.href,
             t.spotify_url = track.spotify_url
+        
         MERGE (al:Album {id: track.album.id})
         ON CREATE SET
             al.id = track.album.id,
@@ -132,7 +127,29 @@ class LikedSongsPlaylistParser:
             al.type = track.album.type,
             al.uri = track.album.uri,
             al.href = track.album.href,
-            al.spotify_url = track.album.spotify_url
+            al.spotify_url = track.album.spotify_url 
+            
+        MERGE (t)<-[:CONTAINS]-(al)
+            
+        WITH track
+        UNWIND track.album.artists as artist
+        MATCH (t:Track {id: track.id})
+        MATCH (al:Album {id: track.album.id})
+        MERGE (ar:Artist {id: artist.id})
+        ON CREATE SET
+            ar.id = artist.id,
+            ar.name = artist.name
+        MERGE (t)<-[:CREATED]-(ar)
+        MERGE (al)<-[:CREATED]-(ar)
+            
+        WITH track
+        UNWIND track.artists as artist
+        MATCH (t:Track {id: track.id})
+        MERGE (ar:Artist {id: artist.id})
+        ON CREATE SET
+            ar.id = artist.id,
+            ar.name = artist.name
+        MERGE (t)<-[:CREATED]-(ar)
         ;
         """
 
