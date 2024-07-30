@@ -37,6 +37,8 @@ class TracksParser:
         raise NotImplementedError()
 
     def write_to_neo4j(self, driver):
+        # TODO: When you have the Neo4J query here, this is where the MERGE clause will need to have an ON UPDATE
+        #       section, because it's gonna probably have data that the Liked Songs or other respones don't have
         raise NotImplementedError()
 
     def follow_links(self):
