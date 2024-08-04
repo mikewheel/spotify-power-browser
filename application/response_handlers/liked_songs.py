@@ -111,20 +111,20 @@ class LikedSongsPlaylistParser:
 
         for song in self.response["items"]:
 
-            logger.info(f'Following song: {song["track"]["name"]}')
+            logger.info(f'Following song from Liked Songs: {song["track"]["name"]}')
             SpotifyRequestFactory.request_url(
                 url=song["track"]["href"],
                 depth_of_search=(self.depth_of_search - 1)
             )
 
-            logger.info(f'Following album: {song["track"]["album"]["name"]}')
+            logger.info(f'Following album from liked song {song["track"]["name"]}: {song["track"]["album"]["name"]}')
             SpotifyRequestFactory.request_url(
                 url=song["track"]["album"]["href"],
                 depth_of_search=(self.depth_of_search - 1)
             )
 
             for artist in song["track"]["artists"]:
-                logger.info(f'Following artist on song: {artist["name"]}')
+                logger.info(f'Following artist from liked song {song["track"]["name"]}: {artist["name"]}')
                 SpotifyRequestFactory.request_url(
                     url=artist["href"],
                     depth_of_search=(self.depth_of_search - 1)

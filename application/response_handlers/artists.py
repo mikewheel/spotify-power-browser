@@ -47,7 +47,7 @@ class ArtistsParser:
         )
 
     def follow_links(self):
-        # Artists don't have any neighbors
+        logger.debug(f'Ending recursion at {self.request_url}; artists have no neighbors.')
         return
 
     def write_to_sqlite(self):

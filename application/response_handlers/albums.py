@@ -51,9 +51,18 @@ class AlbumsParser:
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
             return
 
-        # TODO: get artists
-        # TODO: get tracks
-        raise NotImplementedError()
+        logger.info(f'Following tracks from album {self.response["name"]}')
+        SpotifyRequestFactory.request_url(
+            url=self.response["tracks"]["href"],
+            depth_of_search=(self.depth_of_search - 1)
+        )
+
+        for artist in self.response["artists"]:
+            logger.info(f'Following artist from album {self.response["name"]}: {artist["name"]}')
+            SpotifyRequestFactory.request_url(
+                url=artist["href"],
+                depth_of_search=(self.depth_of_search - 1)
+            )
 
     def write_to_sqlite(self):
         raise NotImplementedError()
