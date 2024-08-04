@@ -2,7 +2,6 @@ from pathlib import Path
 from json import dump
 
 import pandas
-from jinja2 import Environment
 
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
@@ -14,8 +13,6 @@ PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = PROJECT_ROOT_DIR / "data"
 GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
-jinja_environment = Environment()
-
 
 class LikedSongsPlaylistParser:
     """
@@ -25,6 +22,9 @@ class LikedSongsPlaylistParser:
 
     URL_PATTERN = "https://api.spotify.com/v1/me/tracks"
     DISK_LOCATION = DATA_DIR / "responses" / "liked_songs"
+
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_liked_song.cypher", "r") as f:
+        CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):
         self.request_url = request_url
@@ -92,72 +92,13 @@ class LikedSongsPlaylistParser:
 
         logger.info(f'SUCCESS: {output_file.name}')
 
-    def write_to_sqlite(self):
-        raise NotImplementedError()
-
     def write_to_neo4j(self, driver, database="neo4j"):
 
-        tracks = [item["track"] | {"is_liked_song": True, "added_at": item["added_at"]}
+        tracks = [item["track"] | {"added_at": item["added_at"]}
                   for item in self.response["items"]]
 
-        query = """
-        UNWIND $tracks as track
-        MERGE (t:Track {id: track.id})
-        ON CREATE SET
-            t.id = track.id,
-            t.name = track.name,
-            t.explicit = track.explicit,
-            t.is_local = track.is_local,
-            t.popularity = track.popularity,
-            t.duration_ms = track.duration_ms,
-            t.type = track.type,
-            t.uri = track.uri,
-            t.href = track.href,
-            t.spotify_url = track.spotify_url
-        
-        MERGE (al:Album {id: track.album.id})
-        ON CREATE SET
-            al.id = track.album.id,
-            al.name = track.album.name,
-            al.release_date = track.album.release_date,
-            al.release_date_precision = track.album.release_date_precision,
-            al.total_tracks = track.album.total_tracks,
-            al.album_type = track.album.album_type,
-            al.spotify_url = track.album.spotify_url,
-            al.type = track.album.type,
-            al.uri = track.album.uri,
-            al.href = track.album.href,
-            al.spotify_url = track.album.spotify_url 
-            
-        MERGE (t)<-[:CONTAINS]-(al)
-            
-        WITH track
-        UNWIND track.album.artists as artist
-        MATCH (t:Track {id: track.id})
-        MATCH (al:Album {id: track.album.id})
-        MERGE (ar:Artist {id: artist.id})
-        ON CREATE SET
-            ar.id = artist.id,
-            ar.name = artist.name
-        MERGE (t)<-[:CREATED]-(ar)
-        MERGE (al)<-[:CREATED]-(ar)
-            
-        WITH track
-        UNWIND track.artists as artist
-        MATCH (t:Track {id: track.id})
-        MERGE (ar:Artist {id: artist.id})
-        ON CREATE SET
-            ar.id = artist.id,
-            ar.name = artist.name
-        MERGE (t)<-[:CREATED]-(ar)
-        ;
-        """
-
-        # TODO: these statements need an ON UPDATE section to indicate that they are members of the Library
-        #       and also the Liked Songs playlist
-
         execute_query_against_neo4j(
-            query=query,
+            query=self.__class__.CYPHER_QUERY,
             driver=driver,
             database=database,
             tracks=tracks
@@ -188,6 +129,9 @@ class LikedSongsPlaylistParser:
                     url=artist["href"],
                     depth_of_search=(self.depth_of_search - 1)
                 )
+
+    def write_to_sqlite(self):
+        raise NotImplementedError()
 
 
 if __name__ == "__main__":

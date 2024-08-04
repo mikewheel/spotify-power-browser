@@ -4,6 +4,10 @@ from textwrap import indent, dedent
 
 from neo4j import GraphDatabase
 
+from application.loggers import get_logger
+
+logger = get_logger(__name__)
+
 
 def connect_to_neo4j(neo4j_credentials_file):
     """Reads in credentials from a YAML file, initializes the Neo4J driver object, and tests connectivity."""
@@ -24,7 +28,7 @@ def connect_to_neo4j(neo4j_credentials_file):
 
 def execute_query_against_neo4j(query, driver, database="neo4j", **kwargs):
     summary = driver.execute_query(query, database_=database, **kwargs).summary
-    print(dedent(f'''
+    logger.debug(dedent(f'''
     Query: {indent(summary.query, '        ')}
     Time: {round(summary.result_available_after / 1000, 3)} seconds
     Nodes Created: {summary.counters.nodes_created}
@@ -41,5 +45,3 @@ def execute_transaction_against_neo4j(queries, driver, database="neo4j"):
             for query in queries:
                 tx.run(query)
             tx.commit()
-
-    print("Transaction complete.")
