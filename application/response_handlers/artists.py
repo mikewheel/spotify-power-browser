@@ -3,11 +3,13 @@ from json import dump
 
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
+from application.graph_database.connect import execute_query_against_neo4j
 
 logger = get_logger(__name__)
 
-BASE_DIR = Path(__file__).parent.parent.parent
-DATA_DIR = BASE_DIR / "data"
+PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
+DATA_DIR = PROJECT_ROOT_DIR / "data"
+GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
 
 class ArtistsParser:
@@ -18,6 +20,9 @@ class ArtistsParser:
 
     URL_PATTERN = "https://api.spotify.com/v1/artists"
     DISK_LOCATION = DATA_DIR / "responses" / "artists"
+
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_artist.cypher", "r") as f:
+        CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):
         self.request_url = request_url
@@ -33,12 +38,42 @@ class ArtistsParser:
 
         logger.info(f'SUCCESS: {output_file.name}')
 
-    def write_to_sqlite(self):
-        raise NotImplementedError()
-
-    def write_to_neo4j(self, driver):
-        raise NotImplementedError()
+    def write_to_neo4j(self, driver, database="neo4j"):
+        execute_query_against_neo4j(
+            query=self.__class__.CYPHER_QUERY,
+            driver=driver,
+            database=database,
+            artist=self.response
+        )
 
     def follow_links(self):
         # Artists don't have any neighbors
         return
+
+    def write_to_sqlite(self):
+        raise NotImplementedError()
+
+
+if __name__ == "__main__":
+    from json import loads
+
+    from application.graph_database.connect import connect_to_neo4j
+    from application.graph_database.initialize_database_environment import (
+        initialize_database_environment as initialize_neo4j_environment
+    )
+
+    NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
+
+    neo4j_driver = connect_to_neo4j(NEO4J_CREDENTIALS_FILE)
+    initialize_neo4j_environment(driver=neo4j_driver)
+
+    with open(DATA_DIR / "responses" / "artists" / "artist_20syl.json", "r") as f:
+        response = loads(f.read())
+
+    parser = ArtistsParser(
+        request_url=None,
+        depth_of_search=None,
+        response=response
+    )
+
+    parser.write_to_neo4j(driver=neo4j_driver)
