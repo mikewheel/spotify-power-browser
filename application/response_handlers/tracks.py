@@ -30,7 +30,8 @@ class TracksParser:
         self.response = response
 
     def write_to_disk(self):
-        output_file = self.DISK_LOCATION / f"track_{self.response['name']}.json"
+        clean_name = self.response['name'].replace("/", "_slash_").replace("\\", "_back_slash_")
+        output_file = self.DISK_LOCATION / f"track_{clean_name}.json"
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_file, "w") as f:
