@@ -33,3 +33,12 @@ ON CREATE SET
     ar.type = artist.type
 
 MERGE (al)<-[:CREATED]-(ar)
+
+// Inner loop over album's genres (currently blank)
+WITH album UNWIND album.genres as genre
+
+MATCH (al:Album {uri: album.uri})
+
+MERGE (g:Genre {name: genre})
+
+MERGE (al)-[:SPOTIFY_CLASSIFIED_AS]->(g)
