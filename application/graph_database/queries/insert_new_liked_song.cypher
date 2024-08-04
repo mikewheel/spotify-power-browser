@@ -49,6 +49,7 @@ ON CREATE SET
     ar.id = artist.id,
     ar.name = artist.name,
     ar.spotify_url = artist.external_urls.spotify,
+    ar.type = artist.type,
     ar.liked_songs = true
 ON MATCH SET
     ar.liked_songs = true
@@ -67,6 +68,7 @@ ON CREATE SET
     ar.id = artist.id,
     ar.name = artist.name,
     ar.spotify_url = artist.external_urls.spotify,
+    ar.type = artist.type,
     ar.liked_songs = true
 ON MATCH SET
     ar.liked_songs = true

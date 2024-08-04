@@ -39,7 +39,8 @@ ON CREATE SET
     ar.uri = artist.uri,
     ar.id = artist.id,
     ar.name = artist.name,
-    ar.spotify_url = artist.external_urls.spotify
+    ar.spotify_url = artist.external_urls.spotify,
+    ar.type = artist.type
 
 MERGE (t)<-[:CREATED]-(ar)
 MERGE (al)<-[:CREATED]-(ar)
@@ -54,7 +55,8 @@ ON CREATE SET
     ar.uri = artist.uri,
     ar.id = artist.id,
     ar.name = artist.name,
-    ar.spotify_url = artist.external_urls.spotify
+    ar.spotify_url = artist.external_urls.spotify,
+    ar.type = artist.type
 
 MERGE (t)<-[:CREATED]-(ar)
 ;
