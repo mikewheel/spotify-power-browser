@@ -121,7 +121,7 @@ def make_spotify_api_call(ch, method, properties, body):
                 )
 
             if config.WRITE_RESPONSES_TO_NEO4J:
-                channel.basic_publish(
+                publish_message_to_exchange(
                     channel=channel,
                     exchange=ResponsesExchange.EXCHANGE_NAME.value,
                     routing_key=ResponsesExchange.ROUTING_KEY_WRITE_TO_NEO4J.value,
