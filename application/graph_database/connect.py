@@ -29,12 +29,8 @@ def connect_to_neo4j(neo4j_credentials_file):
 def execute_query_against_neo4j(query, driver, database="neo4j", **kwargs):
     summary = driver.execute_query(query, database_=database, **kwargs).summary
     logger.info(dedent(f'''
-    Query: {indent(summary.query, '        ')}
-    Time: {round(summary.result_available_after / 1000, 3)} seconds
     Nodes Created: {summary.counters.nodes_created}
-    Nodes Deleted: {summary.counters.nodes_deleted}
     Edges Created: {summary.counters.relationships_created}
-    Edges Deleted: {summary.counters.relationships_deleted}
     '''))
 
 
