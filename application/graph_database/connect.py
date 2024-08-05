@@ -1,7 +1,6 @@
+from textwrap import dedent
+
 import yaml
-
-from textwrap import indent, dedent
-
 from neo4j import GraphDatabase
 
 from application.loggers import get_logger

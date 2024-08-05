@@ -1,6 +1,7 @@
 import pika
 import warnings
 
+from application.config import RABBITMQ_HOSTNAME
 from application.loggers import get_logger
 
 logger = get_logger(__name__)
@@ -17,9 +18,8 @@ def connect_to_rabbitmq_exchange(
     :param exchange_type: the type of exchange to create – or the type that we expect it to be if it exists
     :return: the connection and channel objects as a 2-tuple.
     """
-    # FIXME: maybe better if this were global?
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='localhost')
+        pika.ConnectionParameters(host=RABBITMQ_HOSTNAME)
     )
     channel = connection.channel()
 

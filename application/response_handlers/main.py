@@ -1,8 +1,8 @@
 import argparse
 from json import loads
-from pathlib import Path
 from urllib.parse import urlparse
 
+from application.config import SECRETS_DIR
 from application.graph_database.connect import connect_to_neo4j
 from application.graph_database.initialize_database_environment import (
     initialize_database_environment as initialize_neo4j_environment
@@ -22,8 +22,7 @@ from application.response_handlers import (
 
 logger = get_logger(__name__)
 
-PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
-NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
+NEO4J_CREDENTIALS_FILE = SECRETS_DIR / "neo4j_credentials.yaml"
 
 
 class SpotifyResponseController:

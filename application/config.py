@@ -1,4 +1,10 @@
 """Lightweight config to direct the scraping process."""
+from pathlib import Path
+
+PROJECT_ROOT_DIR = Path(__file__).absolute().parent.parent
+APPLICATION_DIR = PROJECT_ROOT_DIR / 'application'
+DATA_DIR = PROJECT_ROOT_DIR / 'data'
+SECRETS_DIR = PROJECT_ROOT_DIR / 'secrets'
 
 ###
 # Which searches to kick off
@@ -17,3 +23,5 @@ WRITE_RESPONSES_TO_SQLITE = False
 
 # How many nearest-neighbors the application should pull before it stops searching
 DEPTH_OF_SEARCH = 1
+
+RABBITMQ_HOSTNAME = 'rabbitmq'

@@ -1,10 +1,8 @@
-from pathlib import Path
-
+from application.config import APPLICATION_DIR, SECRETS_DIR
 from application.graph_database.connect import connect_to_neo4j, execute_transaction_against_neo4j
 
-PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
-QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
-NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
+QUERIES_DIR = APPLICATION_DIR / "graph_database" / "queries"
+NEO4J_CREDENTIALS_FILE = SECRETS_DIR / "neo4j_credentials.yaml"
 
 
 def apply_uniqueness_constraints(driver, database="neo4j"):

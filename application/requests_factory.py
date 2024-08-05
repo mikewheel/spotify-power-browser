@@ -1,6 +1,6 @@
 from json import dumps
 
-import config
+from application import config
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
 from application.message_queue.constants import RequestsExchange
 

@@ -1,14 +1,12 @@
 from pathlib import Path
-
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
 from application.loggers import get_logger
 from application.graph_database.connect import execute_query_against_neo4j
 from response_handlers.base_handler import BaseResponseHandler
 
 logger = get_logger(__name__)
 
-PROJECT_ROOT_DIR = Path(__file__).parent.parent.parent
-DATA_DIR = PROJECT_ROOT_DIR / "data"
-GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
+GRAPH_DATABASE_QUERIES_DIR = APPLICATION_DIR / "graph_database" / "queries"
 
 
 class GetSingleArtistResponseHandler(BaseResponseHandler):
@@ -57,7 +55,7 @@ if __name__ == "__main__":
         initialize_database_environment as initialize_neo4j_environment
     )
 
-    NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
+    NEO4J_CREDENTIALS_FILE = SECRETS_DIR / "neo4j_credentials.yaml"
 
     neo4j_driver = connect_to_neo4j(NEO4J_CREDENTIALS_FILE)
     initialize_neo4j_environment(driver=neo4j_driver)

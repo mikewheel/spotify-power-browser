@@ -1,5 +1,4 @@
 from json import dumps, loads
-from pathlib import Path
 from pprint import pformat
 from time import sleep
 
@@ -20,8 +19,7 @@ from application.requests_factory import SpotifyRequestFactory
 
 logger = get_logger(logger_name=__name__)
 
-BASE_DIR = Path(__file__).parent.parent
-SPOTIFY_API_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_api_token.secret"
+SPOTIFY_API_TOKEN_FILE = config.SECRETS_DIR / "spotify_api_token.secret"
 MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 
 logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
