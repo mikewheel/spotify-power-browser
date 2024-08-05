@@ -20,7 +20,7 @@ class GetSingleArtistResponseHandler(BaseResponseHandler):
     URL_PATTERN = "https://api.spotify.com/v1/artists"
     DISK_LOCATION = DATA_DIR / "responses" / "artists"
 
-    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_artist.cypher", "r") as f:
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_artist.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):

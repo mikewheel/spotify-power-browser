@@ -21,7 +21,7 @@ class GetSingleAlbumResponseHandler(BaseResponseHandler):
     URL_PATTERN = "https://api.spotify.com/v1/albums"
     DISK_LOCATION = DATA_DIR / "responses" / "albums"
 
-    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_album.cypher", "r") as f:
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_album.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):

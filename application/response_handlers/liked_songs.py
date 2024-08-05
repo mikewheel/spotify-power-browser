@@ -24,7 +24,7 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
     URL_PATTERN = "https://api.spotify.com/v1/me/tracks"
     DISK_LOCATION = DATA_DIR / "responses" / "liked_songs"
 
-    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_liked_song.cypher", "r") as f:
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_batch_of_liked_songs.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):

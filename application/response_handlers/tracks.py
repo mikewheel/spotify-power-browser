@@ -22,7 +22,7 @@ class GetSingleTrackResponseHandler(BaseResponseHandler):
     URL_PATTERN = "https://api.spotify.com/v1/tracks"
     DISK_LOCATION = DATA_DIR / "responses" / "tracks"
 
-    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_new_track.cypher", "r") as f:
+    with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_track.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):
