@@ -1,6 +1,6 @@
 from json import dumps
 
-from application import config
+from application.config import CRAWL_LIKED_SONGS, CRAWL_FOLLOWED_ARTISTS, CRAWL_FOLLOWED_PLAYLISTS, DEPTH_OF_SEARCH
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
 from application.message_queue.constants import RequestsExchange
 
@@ -63,17 +63,17 @@ class SpotifyRequestFactory:
 
 
 if __name__ == "__main__":
-    if config.CRAWL_LIKED_SONGS:
+    if CRAWL_LIKED_SONGS:
         SpotifyRequestFactory.request_liked_songs_first_page(
-            depth_of_search=config.DEPTH_OF_SEARCH
+            depth_of_search=DEPTH_OF_SEARCH
         )
 
-    if config.CRAWL_FOLLOWED_PLAYLISTS:
+    if CRAWL_FOLLOWED_PLAYLISTS:
         SpotifyRequestFactory.request_followed_playlists_first_page(
-            depth_of_search=config.DEPTH_OF_SEARCH
+            depth_of_search=DEPTH_OF_SEARCH
         )
 
-    if config.CRAWL_FOLLOWED_ARTISTS:
+    if CRAWL_FOLLOWED_ARTISTS:
         SpotifyRequestFactory.request_followed_artists_first_page(
-            depth_of_search=config.DEPTH_OF_SEARCH
+            depth_of_search=DEPTH_OF_SEARCH
         )

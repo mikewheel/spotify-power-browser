@@ -4,7 +4,13 @@ from time import sleep
 
 import requests
 
-from application import config
+from application.config import (
+    SECRETS_DIR,
+    WRITE_RESPONSES_TO_DISK,
+    WRITE_RESPONSES_TO_NEO4J,
+    WRITE_RESPONSES_TO_SQLITE,
+    FOLLOW_LINKS_IN_RESPONSES
+)
 from application.spotify_authentication.refresh_token import refresh_spotify_auth
 from application.loggers import get_logger
 from application.message_queue.connect import (
@@ -19,7 +25,7 @@ from application.requests_factory import SpotifyRequestFactory
 
 logger = get_logger(logger_name=__name__)
 
-SPOTIFY_API_TOKEN_FILE = config.SECRETS_DIR / "spotify_api_token.secret"
+SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
 MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 
 logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
@@ -103,7 +109,7 @@ def make_spotify_api_call(ch, method, properties, body):
                 exchange_type=ResponsesExchange.EXCHANGE_TYPE.value,
             )
 
-            if config.WRITE_RESPONSES_TO_DISK:
+            if WRITE_RESPONSES_TO_DISK:
                 publish_message_to_exchange(
                     channel=channel,
                     exchange=ResponsesExchange.EXCHANGE_NAME.value,
@@ -111,7 +117,7 @@ def make_spotify_api_call(ch, method, properties, body):
                     body=dumps(response_data_with_request)
                 )
 
-            if config.WRITE_RESPONSES_TO_SQLITE:
+            if WRITE_RESPONSES_TO_SQLITE:
                 publish_message_to_exchange(
                     channel=channel,
                     exchange=ResponsesExchange.EXCHANGE_NAME.value,
@@ -119,7 +125,7 @@ def make_spotify_api_call(ch, method, properties, body):
                     body=dumps(response_data_with_request)
                 )
 
-            if config.WRITE_RESPONSES_TO_NEO4J:
+            if WRITE_RESPONSES_TO_NEO4J:
                 publish_message_to_exchange(
                     channel=channel,
                     exchange=ResponsesExchange.EXCHANGE_NAME.value,
@@ -127,7 +133,7 @@ def make_spotify_api_call(ch, method, properties, body):
                     body=dumps(response_data_with_request)
                 )
 
-            if config.FOLLOW_LINKS_IN_RESPONSES:
+            if FOLLOW_LINKS_IN_RESPONSES:
                 publish_message_to_exchange(
                     channel=channel,
                     exchange=ResponsesExchange.EXCHANGE_NAME.value,
