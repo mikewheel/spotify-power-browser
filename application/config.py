@@ -25,3 +25,7 @@ WRITE_RESPONSES_TO_SQLITE = False
 DEPTH_OF_SEARCH = 1
 
 RABBITMQ_HOSTNAME = 'rabbitmq'
+RABBITMQ_PORT = None  # Right now Pika is just using the default
+
+NEO4J_HOSTNAME = 'neo4j'
+NEO4J_PORT = '7687'

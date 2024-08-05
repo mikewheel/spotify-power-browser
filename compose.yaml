@@ -7,9 +7,26 @@ services:
       - "15672:15672"
     healthcheck:
       test: rabbitmq-diagnostics -q ping
+      start_period: 5s
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 10s
+      retries: 20
+
+  neo4j:
+    image: "neo4j:community"
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    volumes:
+      - "$HOME/neo4j/data:/data"
+    environment:
+      NEO4J_AUTH: "neo4j/my_spotify_data"
+    healthcheck:
+      test: wget http://localhost:7474 || exit 1
+      start_period: 5s
+      interval: 5s
+      timeout: 10s
+      retries: 20
 
   api_call_engine:
     image: "spotify-power-browser:latest"
@@ -46,8 +63,12 @@ services:
       rabbitmq:
         condition: service_healthy
         restart: true
+      neo4j:
+        condition: service_healthy
+        restart: true
     links:
       - rabbitmq
+      - neo4j
     command: python3.11 application/response_handlers/main.py write_to_neo4j
 
   responses_follow_links:
@@ -62,4 +83,23 @@ services:
     links:
       - rabbitmq
     command: python3.11 application/response_handlers/main.py follow_links
+
+  requests_factory_start_crawls:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
+      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+    depends_on:
+      responses_write_to_disk:
+        condition: service_started
+        restart: true
+      responses_write_to_neo4j:
+        condition: service_started
+        restart: true
+      responses_follow_links:
+        condition: service_started
+        restart: true
+    links:
+      - rabbitmq
+    command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
 

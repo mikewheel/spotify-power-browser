@@ -3,6 +3,7 @@ from textwrap import dedent
 import yaml
 from neo4j import GraphDatabase
 
+from application.config import NEO4J_HOSTNAME, NEO4J_PORT
 from application.loggers import get_logger
 
 logger = get_logger(__name__)
@@ -16,7 +17,7 @@ def connect_to_neo4j(neo4j_credentials_file):
         except yaml.YAMLError as exc:
             raise exc
 
-    URI = neo4j_credentials['url']
+    URI = f'bolt://{NEO4J_HOSTNAME}:{NEO4J_PORT}'
     AUTH = (neo4j_credentials['username'], neo4j_credentials["password"])
 
     driver = GraphDatabase.driver(URI, auth=AUTH)
