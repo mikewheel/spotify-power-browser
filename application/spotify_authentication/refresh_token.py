@@ -1,10 +1,10 @@
 import requests
-from pathlib import Path
 
-BASE_DIR = Path(__file__).parent
-SPOTIFY_CLIENT_ID_FILE = BASE_DIR / "secrets" / "spotify_client_id.secret"
-SPOTIFY_API_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_api_token.secret"
-SPOTIFY_REFRESH_TOKEN_FILE = BASE_DIR / "secrets" / "spotify_refresh_token.secret"
+from application.config import SECRETS_DIR
+
+SPOTIFY_CLIENT_ID_FILE = SECRETS_DIR / "spotify_client_id.secret"
+SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
+SPOTIFY_REFRESH_TOKEN_FILE = SECRETS_DIR / "spotify_refresh_token.secret"
 
 
 def refresh_spotify_auth():
