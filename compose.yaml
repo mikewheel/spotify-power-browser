@@ -1,0 +1,65 @@
+name: spotify-power-browser
+services:
+  rabbitmq:
+    image: "rabbitmq:3.13-management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api_call_engine:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
+      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    links:
+      - rabbitmq
+    command: python3.11 application/api_call_engine.py
+
+  responses_write_to_disk:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
+      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    links:
+      - rabbitmq
+    command: python3.11 application/response_handlers/main.py write_to_disk
+
+  responses_write_to_neo4j:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
+      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    links:
+      - rabbitmq
+    command: python3.11 application/response_handlers/main.py write_to_neo4j
+
+  responses_follow_links:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
+      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    links:
+      - rabbitmq
+    command: python3.11 application/response_handlers/main.py follow_links
+
