@@ -1,7 +1,7 @@
 from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
-from application.graph_database.connect import execute_query_against_neo4j
 from application.response_handlers.base_handler import BaseResponseHandler
 
 logger = get_logger(__name__)

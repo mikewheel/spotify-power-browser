@@ -1,8 +1,7 @@
-from pathlib import Path
 from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
-from application.loggers import get_logger
 from application.graph_database.connect import execute_query_against_neo4j
-from response_handlers.base_handler import BaseResponseHandler
+from application.loggers import get_logger
+from application.response_handlers.base_handler import BaseResponseHandler
 
 logger = get_logger(__name__)
 
