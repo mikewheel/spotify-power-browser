@@ -9,7 +9,7 @@ NEO4J_CREDENTIALS_FILE = PROJECT_ROOT_DIR / "secrets" / "neo4j_credentials.yaml"
 
 def apply_uniqueness_constraints(driver, database="neo4j"):
 
-    with open(QUERIES_DIR / "apply_uniqueness_constraints_to_nodes.neo4j", "r") as f:
+    with open(QUERIES_DIR / "apply_uniqueness_constraints_to_nodes.cypher", "r") as f:
         query = f.read()
 
     queries = [q.strip() for q in query.split(";") if q.strip()]
