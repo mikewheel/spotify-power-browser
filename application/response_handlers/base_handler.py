@@ -22,12 +22,30 @@ class BaseResponseHandler(ABC):
     def clean_name(self):
         return self.name.replace("/", "_slash_").replace("\\", "_back_slash_")
 
-    def write_to_disk(self, disk_location: Path):
-        output_file = disk_location / f"album_{self.clean_name}.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+    @abstractmethod
+    def check_url_match(self, url):
+        pass
 
-        with open(output_file, "w") as f:
+    @abstractmethod
+    def write_to_disk(self):
+        pass
+
+    def _write_to_disk(self, output_path: Path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "w") as f:
             dump(self.response, f, indent=4)
 
-        logger.info(f'SUCCESS: {output_file.name}')
+        logger.info(f'SUCCESS: {output_path.name}')
 
+    @abstractmethod
+    def write_to_neo4j(self, driver, database="neo4j"):
+        pass
+
+    @abstractmethod
+    def follow_links(self):
+        pass
+
+    @abstractmethod
+    def write_to_sqlite(self):
+        pass

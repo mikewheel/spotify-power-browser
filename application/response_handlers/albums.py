@@ -1,9 +1,9 @@
 from pathlib import Path
-from json import dump
 
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
 from application.graph_database.connect import execute_query_against_neo4j
+from application.response_handlers.base_handler import BaseResponseHandler
 
 logger = get_logger(__name__)
 
@@ -12,7 +12,7 @@ DATA_DIR = PROJECT_ROOT_DIR / "data"
 GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
 
-class GetSingleAlbumResponseHandler:
+class GetSingleAlbumResponseHandler(BaseResponseHandler):
     """
     Parses responses from the Albums endpoint: https://api.spotify.com/v1/albums/{id}
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-album
@@ -25,19 +25,14 @@ class GetSingleAlbumResponseHandler:
         CYPHER_QUERY = f.read()
 
     def __init__(self, request_url, depth_of_search, response):
-        self.request_url = request_url
-        self.depth_of_search = depth_of_search
-        self.response = response
+        super().__init__(request_url, depth_of_search, response)
+
+    def check_url_match(self, url):
+        return False  # TODO
 
     def write_to_disk(self):
-        clean_name = self.response['name'].replace("/", "_slash_").replace("\\", "_back_slash_")
-        output_file = self.DISK_LOCATION / f"album_{clean_name}.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output_file, "w") as f:
-            dump(self.response, f, indent=4)
-
-        logger.info(f'SUCCESS: {output_file.name}')
+        output_file = self.DISK_LOCATION / f"album_{self.clean_name}.json"
+        super()._write_to_disk(output_path=output_file)
 
     def write_to_neo4j(self, driver, database="neo4j"):
         execute_query_against_neo4j(
