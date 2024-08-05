@@ -12,9 +12,9 @@ DATA_DIR = PROJECT_ROOT_DIR / "data"
 GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
 
-class ArtistsParser:
+class GetSingleArtistResponseHandler:
     """
-    Parses responses from the Artists endpoint: https://api.spotify.com/v1/artists
+    Parses responses from the Artists endpoint: https://api.spotify.com/v1/artists/{id}
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-artist
     """
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     with open(DATA_DIR / "responses" / "artists" / "artist_20syl.json", "r") as f:
         response = loads(f.read())
 
-    parser = ArtistsParser(
+    parser = GetSingleArtistResponseHandler(
         request_url=None,
         depth_of_search=None,
         response=response

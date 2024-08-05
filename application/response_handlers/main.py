@@ -14,10 +14,10 @@ from application.message_queue.connect import (
 )
 from application.message_queue.constants import ResponsesExchange
 from application.response_handlers import (
-    AlbumsParser,
-    ArtistsParser,
-    LikedSongsPlaylistParser,
-    TracksParser
+    GetSingleAlbumResponseHandler,
+    GetSingleArtistResponseHandler,
+    LikedSongsPlaylistResponseHandler,
+    GetSingleTrackResponseHandler
 )
 
 logger = get_logger(__name__)
@@ -32,10 +32,10 @@ class SpotifyResponseController:
     """
 
     RESPONSE_HANDLER_CLASSES = [
-        AlbumsParser,
-        ArtistsParser,
-        LikedSongsPlaylistParser,
-        TracksParser
+        GetSingleAlbumResponseHandler,
+        GetSingleArtistResponseHandler,
+        LikedSongsPlaylistResponseHandler,
+        GetSingleTrackResponseHandler
 
     ]
 

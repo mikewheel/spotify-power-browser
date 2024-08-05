@@ -14,7 +14,7 @@ DATA_DIR = PROJECT_ROOT_DIR / "data"
 GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
 
-class LikedSongsPlaylistParser:
+class LikedSongsPlaylistResponseHandler:
     """
     Parses responses from the Liked Songs endpoint: https://api.spotify.com/v1/me/tracks
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     with open(DATA_DIR / "responses" / "liked_songs" / "liked_songs_0.json", "r") as f:
         response = loads(f.read())
 
-    parser = LikedSongsPlaylistParser(
+    parser = LikedSongsPlaylistResponseHandler(
         request_url=None,
         depth_of_search=None,
         response=response

@@ -12,9 +12,9 @@ DATA_DIR = PROJECT_ROOT_DIR / "data"
 GRAPH_DATABASE_QUERIES_DIR = PROJECT_ROOT_DIR / "application" / "graph_database" / "queries"
 
 
-class TracksParser:
+class GetSingleTrackResponseHandler:
     """
-    Parses responses from the Tracks endpoint: https://api.spotify.com/v1/tracks
+    Parses responses from the Tracks endpoint: https://api.spotify.com/v1/tracks/{id}
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-track
     """
 
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     with open(DATA_DIR / "responses" / "tracks" / "track_8-bit.json", "r") as f:
         response = loads(f.read())
 
-    parser = TracksParser(
+    parser = GetSingleTrackResponseHandler(
         request_url=None,
         depth_of_search=None,
         response=response
