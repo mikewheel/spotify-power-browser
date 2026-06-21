@@ -1,4 +1,5 @@
 """Lightweight config to direct the scraping process."""
+import os
 from pathlib import Path
 
 PROJECT_ROOT_DIR = Path(__file__).absolute().parent.parent
@@ -24,8 +25,12 @@ WRITE_RESPONSES_TO_SQLITE = False
 # How many nearest-neighbors the application should pull before it stops searching
 DEPTH_OF_SEARCH = 1
 
-RABBITMQ_HOSTNAME = 'rabbitmq'
+# Hostnames are env-overridable so the same image can point at either a
+# containerized broker/DB (compose service name) or one running on the host
+# (e.g. Neo4j Desktop via host.docker.internal). Defaults preserve the
+# all-in-Docker behavior.
+RABBITMQ_HOSTNAME = os.environ.get('RABBITMQ_HOSTNAME', 'rabbitmq')
 RABBITMQ_PORT = None  # Right now Pika is just using the default
 
-NEO4J_HOSTNAME = 'neo4j'
-NEO4J_PORT = '7687'
+NEO4J_HOSTNAME = os.environ.get('NEO4J_HOSTNAME', 'neo4j')
+NEO4J_PORT = os.environ.get('NEO4J_PORT', '7687')
