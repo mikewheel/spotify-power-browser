@@ -35,12 +35,20 @@ class SeveralResourcesResponseHandler(BaseResponseHandler):
 
     def write_to_disk(self):
         for item in self.items:
-            clean = item["name"].replace("/", "_slash_").replace("\\", "_back_slash_")
-            output_file = self.DISK_LOCATION / f"{self.FILE_PREFIX}_{clean}.json"
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_file, "w") as f:
-                dump(item, f, indent=4)
-            logger.info(f'SUCCESS: {output_file.name}')
+            try:
+                name = item.get("name") or item.get("id") or item.get("uri") or "unknown"
+                clean = name.replace("/", "_slash_").replace("\\", "_back_slash_")
+                # Include the unique Spotify id so two resources that share a name
+                # don't overwrite each other's on-disk snapshot.
+                output_file = self.DISK_LOCATION / f"{self.FILE_PREFIX}_{item['id']}_{clean}.json"
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file, "w") as f:
+                    dump(item, f, indent=4)
+                logger.info(f'SUCCESS: {output_file.name}')
+            except Exception as e:
+                # One malformed item shouldn't abort the rest of the batch write
+                # (auto_ack means an aborted batch write is lost, not retried).
+                logger.warning(f'Skipping unwritable batch item: {e}')
 
     def write_to_neo4j(self, driver, database="neo4j"):
         execute_query_against_neo4j(
