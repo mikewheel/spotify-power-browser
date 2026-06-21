@@ -1,6 +1,13 @@
 from json import dumps
 
-from application.config import CRAWL_LIKED_SONGS, CRAWL_FOLLOWED_ARTISTS, CRAWL_FOLLOWED_PLAYLISTS, DEPTH_OF_SEARCH
+from application.config import (
+    CRAWL_LIKED_SONGS,
+    CRAWL_FOLLOWED_ARTISTS,
+    CRAWL_FOLLOWED_PLAYLISTS,
+    CRAWLED_URL_DEDUP,
+    DEPTH_OF_SEARCH,
+)
+from application.cache.redis_client import url_is_new
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
 from application.message_queue.constants import RequestsExchange
 
@@ -17,6 +24,14 @@ class SpotifyRequestFactory:
     @staticmethod
     def request_url(url, depth_of_search=0):
         if depth_of_search < 0:
+            return
+
+        # Dedup at the single choke point all requests flow through (seeds,
+        # pagination "next", follow-links re-queues, batch chunks). SADD returns
+        # 0 if the URL was already requested -> skip. Marked at publish time, so
+        # this also collapses duplicate in-flight requests.
+        if CRAWLED_URL_DEDUP and not url_is_new(url):
+            logger.debug(f'Skipping already-requested URL: {url}')
             return
 
         connection, channel = connect_to_rabbitmq_exchange(
