@@ -12,6 +12,20 @@ services:
       timeout: 10s
       retries: 20
 
+  redis:
+    image: "redis:7-alpine"
+    # Durable crawled-URL dedup cache. AOF + a named volume so the "seen" set
+    # persists across container restarts AND across crawl runs.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - "redis_data:/data"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   # Neo4j runs on the host via Neo4j Desktop (bolt://host.docker.internal:7687),
   # not as a container — a containerized instance would collide on port 7687
   # with the running Desktop, and the Desktop gives persistence + a graph
@@ -68,10 +82,13 @@ services:
       rabbitmq:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
       spotify_authentication:
         condition: service_healthy
     links:
       - rabbitmq
+      - redis
     command: bash -c "sleep 5 && python3.11 application/api_call_engine.py"
 
   responses_write_to_disk:
@@ -114,8 +131,11 @@ services:
       rabbitmq:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
     links:
       - rabbitmq
+      - redis
     command: python3.11 application/response_handlers/main.py follow_links
 
   requests_factory_start_crawls:
@@ -138,7 +158,13 @@ services:
         restart: true
       spotify_authentication:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     links:
       - rabbitmq
+      - redis
     command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
+
+volumes:
+  redis_data:
 
