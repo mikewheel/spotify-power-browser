@@ -27,6 +27,10 @@ logger = get_logger(logger_name=__name__)
 
 SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
 MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
+# Cap on how long to honor a 429 Retry-After before retrying. Spotify can return
+# a punitive multi-hour Retry-After; we must not freeze this single synchronous
+# consumer that long. (Intent of d97e8ac was "sleep at most ten minutes".)
+MAX_RETRY_AFTER_SECONDS = 600
 
 logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
 with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
@@ -72,9 +76,13 @@ def make_spotify_api_call(ch, method, properties, body):
                     continue
 
             elif r.status_code == 429:
-                seconds_to_wait = r.headers.get("Retry-After") if r.headers.get("Retry-After") else 60
-                logger.warning(f'HTTP 429: Rate limit exceeded! Waiting {seconds_to_wait} seconds to retry...')
-                sleep(max(int(seconds_to_wait), 600))
+                retry_after = int(r.headers.get("Retry-After") or 60)
+                seconds_to_wait = min(retry_after, MAX_RETRY_AFTER_SECONDS)
+                logger.warning(
+                    f'HTTP 429: Rate limit exceeded (Retry-After={retry_after}s). '
+                    f'Waiting {seconds_to_wait}s to retry...'
+                )
+                sleep(seconds_to_wait)
                 continue
 
             elif r.status_code == 401:
