@@ -108,8 +108,41 @@ d.close()"
 ## 6. Tests
 
 ```bash
-docker compose run --rm tests        # pytest; brings up rabbitmq+redis, neo4j tests use the host Desktop
+docker compose run --rm tests        # pytest; brings up rabbitmq+redis+spotify_mock, neo4j tests use the host Desktop
 ```
+
+## Mock Spotify service — crawl offline, no real Spotify
+
+`mock_spotify/` is a controllable Falcon facade of the Spotify API (profile-gated
+`spotify_mock` compose service on :80, with a deterministic synthetic catalog and
+self-referential hrefs). Use it to crawl with **no OAuth, no rate limits, and
+reproducible data** — ideal for testing and demos. It's brought up automatically
+by `docker compose run --rm tests`.
+
+**Run the full pipeline against the mock** (no browser/OAuth step needed):
+```bash
+echo -n mock-access-token  > secrets/spotify_api_token.secret     # seed a fake token
+echo -n mock-refresh-token > secrets/spotify_refresh_token.secret # (satisfies the auth gate)
+RESET_CRAWL=true docker compose -f compose.yaml -f docker-compose.mock.yml up
+```
+The crawler hits the mock's self-referential URLs and builds the graph in Neo4j,
+fully offline. Monitor exactly as in section 5.
+
+**Inject failures** to exercise resilience (control plane lives on the mock):
+```bash
+# next request 429s with Retry-After 5, then resumes:
+docker compose exec spotify_mock curl -s -XPOST localhost:80/_control/config \
+  -H 'Content-Type: application/json' -d '{"fail_next_n":1,"fail_status":429,"retry_after":5}'
+# a specific URL always 500s (exercises the dedup-rollback give-up path):
+docker compose exec spotify_mock curl -s -XPOST localhost:80/_control/config \
+  -H 'Content-Type: application/json' -d '{"fail_url_substring":"trk000005","fail_status":500}'
+docker compose exec spotify_mock curl -s -XPOST localhost:80/_control/reset    # clear injection
+```
+`fail_status`: `429` (set `retry_after`) | `401` | `500`. Scale the catalog via env
+on the `spotify_mock` service: `MOCK_N_TRACKS` / `MOCK_N_ALBUMS` / `MOCK_N_ARTISTS`.
+
+**Design + roadmap:** `docs/mock-spotify-service.md` (Phase 0/1 done locally; the
+AWS/Fargate deploy is Phase 3, not yet built).
 
 ## 7. Tear down
 

@@ -168,6 +168,23 @@ services:
       - redis
     command: bash -c "sleep 5 && python3 application/requests_factory.py"
 
+  spotify_mock:
+    image: "spotify-power-browser:latest"
+    # A controllable mock of the Spotify Web API, for tests and mock-backed runs.
+    # Not part of the normal `up` (profile-gated). Listens on :80 so request URLs
+    # carry no port (the dispatcher strips ports). The crawler reaches it at
+    # http://spotify_mock — set SPOTIFY_API_BASE_URL=http://spotify_mock to crawl it.
+    profiles: ["test", "mock"]
+    volumes:
+      - "./mock_spotify:/src/mock_spotify"
+    command: python3 -m mock_spotify.app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/_control/health || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+
   tests:
     image: "spotify-power-browser:latest"
     # Test runner -- not part of the normal `up`. Run with:
@@ -186,6 +203,8 @@ services:
       rabbitmq:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      spotify_mock:
         condition: service_healthy
     command: python3 -m pytest tests/
 
