@@ -1,0 +1,44 @@
+# Override: point the whole crawl pipeline at the local mock Spotify service.
+#
+# Usage (seed a fake token first so the auth gate passes, then bring it up):
+#   echo -n mock-access-token  > secrets/spotify_api_token.secret
+#   echo -n mock-refresh-token > secrets/spotify_refresh_token.secret
+#   RESET_CRAWL=true docker compose -f compose.yaml -f docker-compose.mock.yml up
+#
+# The crawler then hits the mock's self-referential URLs and builds the graph in
+# Neo4j — fully offline, no real Spotify, no OAuth, no rate limits.
+services:
+  # Include the mock in a normal `up` (it's profile-gated in the base file).
+  spotify_mock:
+    profiles: []
+
+  requests_factory_start_crawls:
+    environment:
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
+
+  api_call_engine:
+    environment:
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
+
+  responses_write_to_disk:
+    environment:
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
+
+  responses_write_to_neo4j:
+    environment:
+      # base file already sets NEO4J_HOSTNAME here; compose merges environment.
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
+
+  responses_follow_links:
+    environment:
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
+
+  spotify_authentication:
+    environment:
+      SPOTIFY_API_BASE_URL: http://spotify_mock
+      SPOTIFY_ACCOUNTS_BASE_URL: http://spotify_mock
