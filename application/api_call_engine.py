@@ -86,7 +86,12 @@ def make_spotify_api_call(ch, method, properties, body):
                     continue
 
             elif r.status_code == 429:
-                retry_after = int(r.headers.get("Retry-After") or 60)
+                # Retry-After is usually delta-seconds but may be an HTTP-date;
+                # fall back to 60s rather than letting int() raise.
+                try:
+                    retry_after = int(r.headers.get("Retry-After"))
+                except (TypeError, ValueError):
+                    retry_after = 60
                 seconds_to_wait = min(retry_after, MAX_RETRY_AFTER_SECONDS)
                 logger.warning(
                     f'HTTP 429: Rate limit exceeded (Retry-After={retry_after}s). '
