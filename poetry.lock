@@ -1309,22 +1309,22 @@ test = ["pep440", "pre-commit", "pytest", "testpath"]
 
 [[package]]
 name = "neo4j"
-version = "5.22.0"
+version = "6.2.0"
 description = "Neo4j Bolt driver for Python"
 optional = false
-python-versions = ">=3.7"
+python-versions = ">=3.10"
 files = [
-    {file = "neo4j-5.22.0-py3-none-any.whl", hash = "sha256:8146755ac93d33cee594975172c15cffb68ab158e3358bb7a73b5e0b83367006"},
-    {file = "neo4j-5.22.0.tar.gz", hash = "sha256:199677239ce11fcecabce9962af515df271c1313ba110e737dd7d668fccd0c04"},
+    {file = "neo4j-6.2.0-py3-none-any.whl", hash = "sha256:b87abdd13a5cc2e3bd51026926c2f20ac38fa3febe98c340520dce19e97388d0"},
+    {file = "neo4j-6.2.0.tar.gz", hash = "sha256:e1e246b65b572bd8ea97f9e0e721b7d40a5ce53e53d0007c29aef63e4f9124d9"},
 ]
 
 [package.dependencies]
 pytz = "*"
 
 [package.extras]
-numpy = ["numpy (>=1.7.0,<2.0.0)"]
-pandas = ["numpy (>=1.7.0,<2.0.0)", "pandas (>=1.1.0,<3.0.0)"]
-pyarrow = ["pyarrow (>=1.0.0)"]
+numpy = ["numpy (>=1.21.2,<3.0.0)"]
+pandas = ["numpy (>=1.21.2,<3.0.0)", "pandas[timezone] (>=1.1.0,<4.0.0)"]
+pyarrow = ["pyarrow (>=6.0.0,<25.0.0)"]
 
 [[package]]
 name = "nest-asyncio"
@@ -2325,4 +2325,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "632c949e8e2f8ff2a62d80a5422748c7fee889ef613b13d63df570ec7912cba0"
+content-hash = "40fc582ec765ed0e4b34276bb0bb869c90c919b771ddb164a429401975825090"
