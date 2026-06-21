@@ -29,10 +29,10 @@ class SpotifyRequestFactory:
 
         # Dedup at the single choke point all requests flow through (seeds,
         # pagination "next", follow-links re-queues, batch chunks). SADD returns
-        # 0 if the URL was already requested -> skip. Marked at publish time, so
-        # this also collapses duplicate in-flight requests.
-        if CRAWLED_URL_DEDUP and not url_is_new(url):
-            logger.debug(f'Skipping already-requested URL: {url}')
+        # 0 if the URL was already requested at this depth -> skip. Marked at
+        # publish time, so this also collapses duplicate in-flight requests.
+        if CRAWLED_URL_DEDUP and not url_is_new(url, depth_of_search):
+            logger.debug(f'Skipping already-requested URL at depth {depth_of_search}: {url}')
             return
 
         connection, channel = connect_to_rabbitmq_exchange(

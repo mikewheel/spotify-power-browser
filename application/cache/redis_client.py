@@ -30,16 +30,22 @@ def get_redis_client():
     return _client
 
 
-def url_is_new(url):
-    """Atomically mark a URL as crawled.
+def _member(url, depth_of_search):
+    # Key on (depth, url) so a resource reached again at a DEEPER depth (which
+    # must expand further) is not blocked by an earlier shallower visit that
+    # terminated. Same-depth duplicates (the flood the dedup targets) still
+    # collapse to a single member.
+    return f"{depth_of_search}|{url}"
 
-    Returns True if the URL was newly added to the crawled set (it has not been
-    requested before, so the caller should proceed), or False if it was already
-    present (already requested -> the caller should skip it). Because the mark
-    happens at request time, this dedupes in-flight requests, not just completed
-    ones.
+
+def url_is_new(url, depth_of_search):
+    """Atomically mark a (url, depth) pair as crawled.
+
+    Returns True if newly added (the caller should proceed), or False if it was
+    already present at this depth (skip). Marking at request time dedupes
+    in-flight requests, not just completed ones.
     """
-    return get_redis_client().sadd(CRAWLED_URL_SET_KEY, url) == 1
+    return get_redis_client().sadd(CRAWLED_URL_SET_KEY, _member(url, depth_of_search)) == 1
 
 
 def reset_crawled_set():
