@@ -61,7 +61,8 @@ requests_factory ──► Requests exchange ──► api_call_engine ──►
 - **`write_to_sqlite` is `NotImplementedError` everywhere** (flag is off — leave it off).
 
 ### Known bugs
-- 🐛 **Token-refresh bug (`api_call_engine.py`).** `SPOTIFY_API_TOKEN` is read from disk **once at import**. On a 401, `refresh_spotify_auth()` writes a fresh token to disk but the in-memory global is never updated, so the retry reuses the **stale** token → **infinite refresh loop** on any crawl that outlives the ~1h token. Short crawls finish before expiry, which is why it's gone unnoticed. _Fix: re-read the token (or consume the refresh return value) inside the 401 branch._
+- ✅ **Token-refresh bug (`api_call_engine.py`)** — _fixed (Stage 1)._ `SPOTIFY_API_TOKEN` was read once at import and never updated after a 401 refresh → infinite refresh loop past the ~1h token. Now re-read from disk via `load_api_token()` after `refresh_spotify_auth()`.
+- ✅ **Inverted 429 backoff (`api_call_engine.py`)** — _fixed (Stage 1)._ `sleep(max(Retry-After, 600))` floored the wait at 10 min and obeyed punitive values in full (a live crawl got a ~24h `Retry-After` and froze). Now `min(Retry-After, 600)`.
 
 ### Notable gaps
 - **No UX / data viz.** The only way to see the graph is the Neo4j browser + hand-written Cypher. `pandas`/`jupyter`/`openpyxl` are dependencies but effectively unused.
@@ -76,15 +77,21 @@ requests_factory ──► Requests exchange ──► api_call_engine ──►
 - [x] Bundle the Spotify auth web service into Docker Compose (port 8000).
 - [x] Gate the pipeline on auth completion via a token healthcheck (one `up`, waits for the human to authorize, then proceeds).
 - [x] Point the pipeline at **Neo4j Desktop on the host** (`host.docker.internal:7687`) instead of the containerized Neo4j (which collides on port 7687).
-- [ ] Replace hard-coded `/Users/michael/...` mount paths with relative/`${PWD}` paths for portability.
-- [ ] Add a `build:` context so `docker compose up --build` produces the image.
+- [x] Replace hard-coded `/Users/michael/...` mount paths with relative `./secrets` / `./data` paths for portability.
+- [x] Add a `build:` context so `docker compose up --build` produces the image.
 
-### Stage 1 — Correctness & the batching refactor _(the branch's namesake)_
-**Goal:** finish what `refactor_to_enable_batching_of_api_requests` set out to do.
-- [ ] Fix the token-refresh bug (Stage 0 prerequisite for any long crawl).
-- [ ] Convert `single_track` / `single_artist` / `single_album` handlers from single inserts to batch (`UNWIND`) inserts. _Note: `LikedSongsPlaylist` is the one already-converted proof of concept._
-- [ ] Add **cross-response batching** in the `write_to_neo4j` consumer (buffer N responses / flush on interval) — the real "scale out the API calls" win.
-- [ ] Remove the dead `check_url_match()` stubs or wire them into routing.
+**Verified end-to-end on 2026-06-21:** one `docker compose up` → bundled OAuth (now `http://127.0.0.1:8000/callback` — Spotify rejects `localhost` as insecure) → crawl → Neo4j. The first live crawl also surfaced the rate-limit failure mode that motivated Stage 1.
+
+### Stage 1 — Correctness, dedup & batch endpoints _(the branch's namesake)_
+**What set the priorities:** the first live crawl (depth 1, ~12k Liked Songs) flooded Spotify with redundant per-song follow requests (no dedup) and got the app **rate-limited with a ~24h `Retry-After`**, which the inverted 429 sleep then obeyed in full. Dedup + the two bug fixes address this head-on.
+
+- [x] **Fix the token-refresh bug** — re-read the token after a 401 refresh.
+- [x] **Cap the 429 backoff** at 10 min (`max`→`min`) so a punitive `Retry-After` can't freeze the worker.
+- [x] **Redis crawled-URL dedup** — durable Redis service (AOF + named volume); one persistent `spb:crawled_urls` set; `SADD`-skip at the `request_url` choke point (`CRAWLED_URL_DEDUP`, default on); `RESET_CRAWL` for a fresh crawl. The fix for the request flood.
+- [x] **Batch endpoints behind a feature flag** (`USE_BATCH_ENDPOINTS`, **default off**) — `request_batch` (chunked `?ids=`, caps 50/20/50) + "Get Several" handlers + `UNWIND` Cypher + dispatcher routing + `follow_links` branch. A 20-song page → 3 calls instead of ~67 (~22× fewer at 12k scale).
+- [ ] **Live-verify batch access** post rate-limit cooldown (~2026-06-22) via `_probe_batch_endpoints.py`; if 200, set `USE_BATCH_ENDPOINTS=true` via env. _Existing apps currently retain batch endpoints, but Spotify only **postponed** removing them — keep the per-item fallback._
+- [ ] _(later)_ Cross-response Neo4j batching (buffer N / flush on interval) — secondary; the API-call batching above is the bigger win.
+- [ ] _(later)_ Remove the dead `check_url_match()` stubs.
 
 ### Stage 2 — Deeper crawls
 **Goal:** crawl beyond Liked Songs at depth 1.
