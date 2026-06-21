@@ -116,6 +116,17 @@ requests_factory ──► Requests exchange ──► api_call_engine ──►
 - [ ] CI (build + lint + smoke test).
 - [ ] Deploy target (managed RabbitMQ + Neo4j Aura + container host).
 
+### Stage 6 — Mock Spotify service (testing + AWS) _(planned)_
+A controllable facade of the Spotify API that can inject rate limiting / failures
+between successful fetches. Unlocks the resilience + E2E + scale tests that
+fixtures can't reach (the 429-cap, token-refresh, and dedup-rollback-on-500
+paths), and doubles as a first AWS workload that informs the real migration.
+**Design + phased plan: [docs/mock-spotify-service.md](docs/mock-spotify-service.md).**
+- [ ] Phase 0: configurable Spotify base URLs (env-overridable; mock emits self-referential hrefs).
+- [ ] Phase 1: local FastAPI mock + deterministic catalog as a Compose service; E2E / pagination / scale tests.
+- [ ] Phase 2: failure-injection control plane; the resilience tests.
+- [ ] Phase 3+: deploy to Fargate; inform the real-app AWS migration.
+
 ---
 
 ## 4. File map
