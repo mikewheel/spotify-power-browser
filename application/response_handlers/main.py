@@ -1,6 +1,6 @@
 import argparse
 from json import loads
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from application.config import SECRETS_DIR
 from application.graph_database.connect import connect_to_neo4j
@@ -17,7 +17,10 @@ from application.response_handlers import (
     GetSingleAlbumResponseHandler,
     GetSingleArtistResponseHandler,
     LikedSongsPlaylistResponseHandler,
-    GetSingleTrackResponseHandler
+    GetSingleTrackResponseHandler,
+    GetSeveralTracksResponseHandler,
+    GetSeveralAlbumsResponseHandler,
+    GetSeveralArtistsResponseHandler,
 )
 
 logger = get_logger(__name__)
@@ -43,6 +46,14 @@ class SpotifyResponseController:
         for cls in RESPONSE_HANDLER_CLASSES
     }
 
+    # Batch endpoints (GET /v1/{type}?ids=...) route by resource type, since the
+    # path-strip below collapses /v1/tracks to /v1 once the query is removed.
+    BATCH_RESPONSE_HANDLER_MAPPING = {
+        "tracks": GetSeveralTracksResponseHandler,
+        "albums": GetSeveralAlbumsResponseHandler,
+        "artists": GetSeveralArtistsResponseHandler,
+    }
+
     @staticmethod
     def dispatch_to_response_parser(ch, method, properties, body):
         global RESPONSE_HANDLER_ACTION
@@ -53,25 +64,33 @@ class SpotifyResponseController:
         depth_of_search = msg["depth_of_search"]
         response = msg["response"]
 
-        # Make the request URL look uniform so that we can use it to search for the response handler
         parsed_request_url = urlparse(request_url)
-        parsed_request_url = parsed_request_url._replace(
-            netloc=parsed_request_url.netloc.split(":")[0]
-        )
-        parsed_request_url = parsed_request_url._replace(query="")
-        parsed_request_url = parsed_request_url._replace(fragment="")
 
-        if not request_url.startswith("https://api.spotify.com/v1/me"):
-            parsed_request_url = parsed_request_url._replace(
-                path=parsed_request_url.path.rsplit("/", maxsplit=1)[0]
+        if "ids" in parse_qs(parsed_request_url.query):
+            # Batch endpoint: GET /v1/{resource_type}?ids=...
+            resource_type = parsed_request_url.path.rstrip("/").rsplit("/", maxsplit=1)[-1]
+            try:
+                response_handler = SpotifyResponseController.BATCH_RESPONSE_HANDLER_MAPPING[resource_type]
+            except KeyError:
+                raise ValueError(
+                    f'No batch response handler for resource type "{resource_type}": {request_url}'
+                )
+        else:
+            # Make the request URL uniform so we can look up the single/collection handler.
+            normalized = parsed_request_url._replace(
+                netloc=parsed_request_url.netloc.split(":")[0],
+                query="",
+                fragment="",
             )
+            if not request_url.startswith("https://api.spotify.com/v1/me"):
+                normalized = normalized._replace(
+                    path=normalized.path.rsplit("/", maxsplit=1)[0]
+                )
 
-        parsed_request_url = parsed_request_url.geturl()
-
-        try:
-            response_handler = SpotifyResponseController.RESPONSE_HANDLER_URL_MAPPING[parsed_request_url]
-        except KeyError:
-            raise ValueError(f'No response handler maps to the following URL: {request_url}')
+            try:
+                response_handler = SpotifyResponseController.RESPONSE_HANDLER_URL_MAPPING[normalized.geturl()]
+            except KeyError:
+                raise ValueError(f'No response handler maps to the following URL: {request_url}')
 
         if RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_DISK.value:
             response_handler(request_url, depth_of_search, response).write_to_disk()

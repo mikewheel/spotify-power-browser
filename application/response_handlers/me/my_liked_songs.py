@@ -1,6 +1,6 @@
 import pandas
 
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -39,7 +39,6 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
                 song_id = song["track"]["id"]
                 song_uri = song["track"]["uri"]
                 song_is_explicit = song["track"]["explicit"]
-                song_popularity = song["track"]["popularity"]
 
                 # Album data
                 song_album_name = song["track"]["album"]["name"]
@@ -62,7 +61,6 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
                     "song_first_artist_name": song_first_artist_name,
                     "song_album_name": song_album_name,
                     "song_is_explicit": song_is_explicit,
-                    "song_popularity": song_popularity,
 
                     "song_external_url_spotify": song_external_url_spotify,
                     "song_id": song_id,
@@ -106,7 +104,24 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
             return
 
-        for song in self.response["items"]:
+        items = self.response["items"]
+
+        if USE_BATCH_ENDPOINTS:
+            # The page already carries full track objects (written to Neo4j by
+            # this handler), so only the album/artist neighbors need fetching.
+            SpotifyRequestFactory.request_batch(
+                "albums",
+                [song["track"]["album"]["id"] for song in items],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            SpotifyRequestFactory.request_batch(
+                "artists",
+                [artist["id"] for song in items for artist in song["track"]["artists"]],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            return
+
+        for song in items:
 
             logger.info(f'Following song from Liked Songs: {song["track"]["name"]}')
             SpotifyRequestFactory.request_url(

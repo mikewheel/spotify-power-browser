@@ -1,4 +1,4 @@
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -44,11 +44,17 @@ class GetSingleAlbumResponseHandler(BaseResponseHandler):
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
             return
 
-        logger.info(f'Following tracks from album {self.response["name"]}')
-        SpotifyRequestFactory.request_url(
-            url=self.response["tracks"]["href"],
-            depth_of_search=(self.depth_of_search - 1)
-        )
+        # Album tracks (a paginated sub-resource) are intentionally not followed
+        # in either mode: tracks_of_album is unimplemented and the URL normalizes
+        # to an unmapped handler (raising in the dispatcher). Only artists are
+        # followed, so single and batch modes behave identically.
+        if USE_BATCH_ENDPOINTS:
+            SpotifyRequestFactory.request_batch(
+                "artists",
+                [artist["id"] for artist in self.response["artists"]],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            return
 
         for artist in self.response["artists"]:
             logger.info(f'Following artist from album {self.response["name"]}: {artist["name"]}')

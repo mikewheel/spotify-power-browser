@@ -1,4 +1,5 @@
-WITH $track as track
+// Iterate over a batch of full track objects (Get Several Tracks response)
+UNWIND $tracks as track
 
 MERGE (t:Track {uri: track.uri})
 ON CREATE SET

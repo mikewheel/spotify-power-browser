@@ -1,7 +1,7 @@
 name: spotify-power-browser
 services:
   rabbitmq:
-    image: "rabbitmq:3.13-management"
+    image: "rabbitmq:4-management"
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -12,40 +12,91 @@ services:
       timeout: 10s
       retries: 20
 
-  neo4j:
-    image: "neo4j:community"
-    ports:
-      - "7687:7687"
-      - "7474:7474"
-#    volumes:
-#      - "$HOME/neo4j/data:/data"
-    environment:
-      NEO4J_AUTH: "neo4j/my_spotify_data"
+  redis:
+    image: "redis:8-alpine"
+    # Durable crawled-URL dedup cache. AOF + a named volume so the "seen" set
+    # persists across container restarts AND across crawl runs.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - "redis_data:/data"
     healthcheck:
-      test: wget http://localhost:7474 || exit 1
+      test: ["CMD", "redis-cli", "ping"]
       start_period: 5s
       interval: 5s
-      timeout: 10s
+      timeout: 5s
       retries: 20
+
+  # Neo4j runs on the host via Neo4j Desktop (bolt://host.docker.internal:7687),
+  # not as a container — a containerized instance would collide on port 7687
+  # with the running Desktop, and the Desktop gives persistence + a graph
+  # browser for inspecting results. To go fully in-Docker instead: quit Neo4j
+  # Desktop, uncomment this service, drop the NEO4J_HOSTNAME override on
+  # responses_write_to_neo4j, and set neo4j_credentials.yaml to match NEO4J_AUTH.
+  #
+  # neo4j:
+  #   image: "neo4j:community"
+  #   ports:
+  #     - "7687:7687"
+  #     - "7474:7474"
+  #   volumes:
+  #     - "neo4j_data:/data"
+  #   environment:
+  #     NEO4J_AUTH: "neo4j/my_spotify_data"
+  #   healthcheck:
+  #     test: wget http://localhost:7474 || exit 1
+  #     start_period: 5s
+  #     interval: 5s
+  #     timeout: 10s
+  #     retries: 20
+
+  spotify_authentication:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
+    ports:
+      - "8000:8000"
+    command: python3.11 application/spotify_authentication/api_authorization_web_service.py
+    healthcheck:
+      # Healthy only once the OAuth flow has written an access token. This
+      # gates the pipeline so a single `docker compose up` waits for the human
+      # to authorize before any crawling begins. The long start_period keeps the
+      # container in "starting" (not "unhealthy") while it waits for a human, so
+      # `docker compose up` won't abort the gated services if authorization takes
+      # a while; the first successful probe flips it healthy immediately.
+      test: ["CMD-SHELL", "test -s /src/secrets/spotify_api_token.secret"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 3600s
 
   api_call_engine:
     image: "spotify-power-browser:latest"
+    # The whole project shares one image; build it once here, the other
+    # services reference the same tag.
+    build: .
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
+        restart: true
+      spotify_authentication:
+        condition: service_healthy
     links:
       - rabbitmq
+      - redis
     command: bash -c "sleep 5 && python3.11 application/api_call_engine.py"
 
   responses_write_to_disk:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -56,39 +107,44 @@ services:
 
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
+    # Point this worker at Neo4j Desktop on the host rather than a container.
+    environment:
+      NEO4J_HOSTNAME: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
         restart: true
-      neo4j:
-        condition: service_healthy
-        restart: true
     links:
       - rabbitmq
-      - neo4j
     command: python3.11 application/response_handlers/main.py write_to_neo4j
 
   responses_follow_links:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
+        restart: true
     links:
       - rabbitmq
+      - redis
     command: python3.11 application/response_handlers/main.py follow_links
 
   requests_factory_start_crawls:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       api_call_engine:
         condition: service_started
@@ -102,7 +158,16 @@ services:
       responses_follow_links:
         condition: service_started
         restart: true
+      spotify_authentication:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+        restart: true
     links:
       - rabbitmq
+      - redis
     command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
+
+volumes:
+  redis_data:
 

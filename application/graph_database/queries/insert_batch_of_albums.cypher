@@ -1,4 +1,5 @@
-WITH $album as album
+// Iterate over a batch of full album objects (Get Several Albums response)
+UNWIND $albums as album
 
 MERGE (al:Album {uri: album.uri})
 ON CREATE SET

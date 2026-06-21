@@ -1,4 +1,5 @@
-WITH $artist as artist
+// Iterate over a batch of full artist objects (Get Several Artists response)
+UNWIND $artists as artist
 
 MERGE (ar:Artist {uri: artist.uri})
 ON CREATE SET
