@@ -28,6 +28,24 @@ services:
       timeout: 10s
       retries: 20
 
+  spotify_authentication:
+    image: "spotify-power-browser:latest"
+    volumes:
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
+    ports:
+      - "8000:8000"
+    command: python3.11 application/spotify_authentication/api_authorization_web_service.py
+    healthcheck:
+      # Healthy only once the OAuth flow has written an access token. This
+      # gates the pipeline so a single `docker compose up` waits for the
+      # human to authorize before any crawling begins.
+      test: ["CMD-SHELL", "test -s /src/secrets/spotify_api_token.secret"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+      start_period: 5s
+
   api_call_engine:
     image: "spotify-power-browser:latest"
     # The whole project shares one image; build it once here, the other
@@ -40,6 +58,8 @@ services:
       rabbitmq:
         condition: service_healthy
         restart: true
+      spotify_authentication:
+        condition: service_healthy
     links:
       - rabbitmq
     command: bash -c "sleep 5 && python3.11 application/api_call_engine.py"
@@ -105,6 +125,8 @@ services:
       responses_follow_links:
         condition: service_started
         restart: true
+      spotify_authentication:
+        condition: service_healthy
     links:
       - rabbitmq
     command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
