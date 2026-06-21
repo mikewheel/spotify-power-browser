@@ -30,9 +30,12 @@ services:
 
   api_call_engine:
     image: "spotify-power-browser:latest"
+    # The whole project shares one image; build it once here, the other
+    # services reference the same tag.
+    build: .
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -44,8 +47,8 @@ services:
   responses_write_to_disk:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -57,8 +60,8 @@ services:
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -74,8 +77,8 @@ services:
   responses_follow_links:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -87,8 +90,8 @@ services:
   requests_factory_start_crawls:
     image: "spotify-power-browser:latest"
     volumes:
-      - "/Users/michael/software_projects/spotify-power-browser/secrets:/src/secrets"
-      - "/Users/michael/software_projects/spotify-power-browser/data:/src/data"
+      - "./secrets:/src/secrets"
+      - "./data:/src/data"
     depends_on:
       api_call_engine:
         condition: service_started
