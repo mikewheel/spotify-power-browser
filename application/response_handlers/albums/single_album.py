@@ -1,4 +1,4 @@
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -42,6 +42,16 @@ class GetSingleAlbumResponseHandler(BaseResponseHandler):
     def follow_links(self):
         if self.depth_of_search <= 0:
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
+            return
+
+        if USE_BATCH_ENDPOINTS:
+            # Album tracks are a paginated sub-resource (not an ?ids= batch) with
+            # no handler yet, so only artists are followed in batch mode.
+            SpotifyRequestFactory.request_batch(
+                "artists",
+                [artist["id"] for artist in self.response["artists"]],
+                depth_of_search=(self.depth_of_search - 1),
+            )
             return
 
         logger.info(f'Following tracks from album {self.response["name"]}')

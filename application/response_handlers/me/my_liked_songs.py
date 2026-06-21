@@ -1,6 +1,6 @@
 import pandas
 
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -104,7 +104,27 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
             return
 
-        for song in self.response["items"]:
+        items = self.response["items"]
+
+        if USE_BATCH_ENDPOINTS:
+            SpotifyRequestFactory.request_batch(
+                "tracks",
+                [song["track"]["id"] for song in items],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            SpotifyRequestFactory.request_batch(
+                "albums",
+                [song["track"]["album"]["id"] for song in items],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            SpotifyRequestFactory.request_batch(
+                "artists",
+                [artist["id"] for song in items for artist in song["track"]["artists"]],
+                depth_of_search=(self.depth_of_search - 1),
+            )
+            return
+
+        for song in items:
 
             logger.info(f'Following song from Liked Songs: {song["track"]["name"]}')
             SpotifyRequestFactory.request_url(
