@@ -100,6 +100,22 @@ def rabbitmq_channel():
 
 
 @pytest.fixture
+def mock_base():
+    """Base URL of the mock Spotify service; skips if it isn't reachable."""
+    import requests
+    base = "http://spotify_mock"
+    try:
+        requests.post(f"{base}/_control/reset", timeout=3).raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Mock Spotify service not reachable: {exc}")
+    yield base
+    try:
+        requests.post(f"{base}/_control/reset", timeout=3)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@pytest.fixture
 def neo4j_driver():
     from application.config import SECRETS_DIR
     from application.graph_database.connect import connect_to_neo4j
