@@ -1,4 +1,4 @@
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS, SPOTIFY_API_BASE_URL
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -15,7 +15,7 @@ class GetSingleAlbumResponseHandler(BaseResponseHandler):
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-album
     """
 
-    URL_PATTERN = "https://api.spotify.com/v1/albums"
+    URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/albums"
     DISK_LOCATION = DATA_DIR / "responses" / "albums"
 
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_album.cypher", "r") as f:

@@ -1,6 +1,6 @@
 import pandas
 
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, USE_BATCH_ENDPOINTS, SPOTIFY_API_BASE_URL
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
@@ -17,7 +17,7 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks
     """
 
-    URL_PATTERN = "https://api.spotify.com/v1/me/tracks"
+    URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/me/tracks"
     DISK_LOCATION = DATA_DIR / "responses" / "liked_songs"
 
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_batch_of_liked_songs.cypher", "r") as f:

@@ -24,3 +24,9 @@ def test_shipped_flag_defaults():
     assert config.CRAWLED_URL_DEDUP is True
     assert config.USE_BATCH_ENDPOINTS is False
     assert config.RESET_CRAWL is False
+
+
+def test_spotify_base_url_defaults():
+    # Default to the real Spotify; override (e.g. to a local mock) is env-driven.
+    assert config.SPOTIFY_API_BASE_URL == "https://api.spotify.com"
+    assert config.SPOTIFY_ACCOUNTS_BASE_URL == "https://accounts.spotify.com"

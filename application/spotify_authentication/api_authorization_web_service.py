@@ -5,7 +5,7 @@ from wsgiref.simple_server import make_server
 import falcon
 import requests
 
-from application.config import SECRETS_DIR
+from application.config import SECRETS_DIR, SPOTIFY_ACCOUNTS_BASE_URL
 
 SPOTIFY_CLIENT_ID_FILE = SECRETS_DIR / "spotify_client_id.secret"
 SPOTIFY_CLIENT_SECRET_FILE = SECRETS_DIR / "spotify_client_secret.secret"
@@ -36,7 +36,7 @@ class SpotifyLoginResource:
                                   "scope": scopes,
                                   "redirect_uri": SPOTIFY_REDIRECT_URI})
 
-        authorization_code_uri = f'https://accounts.spotify.com/authorize?{query_params}'
+        authorization_code_uri = f'{SPOTIFY_ACCOUNTS_BASE_URL}/authorize?{query_params}'
         raise falcon.HTTPMovedPermanently(authorization_code_uri)
 
 
@@ -56,7 +56,7 @@ class SpotifyAuthCodeResource:
         print("Requesting API Token from Spotify...")
 
         r = requests.post(
-            'https://accounts.spotify.com/api/token',
+            f'{SPOTIFY_ACCOUNTS_BASE_URL}/api/token',
             data={
                 "code": authorization_code,
                 "redirect_uri": SPOTIFY_REDIRECT_URI,

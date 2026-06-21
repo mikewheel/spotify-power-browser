@@ -1,4 +1,4 @@
-from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR
+from application.config import APPLICATION_DIR, DATA_DIR, SECRETS_DIR, SPOTIFY_API_BASE_URL
 from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.response_handlers.base_handler import BaseResponseHandler
@@ -14,7 +14,7 @@ class GetSingleArtistResponseHandler(BaseResponseHandler):
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-artist
     """
 
-    URL_PATTERN = "https://api.spotify.com/v1/artists"
+    URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/artists"
     DISK_LOCATION = DATA_DIR / "responses" / "artists"
 
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_artist.cypher", "r") as f:
