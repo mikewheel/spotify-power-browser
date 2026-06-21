@@ -32,12 +32,18 @@ MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 # consumer that long. (Intent of d97e8ac was "sleep at most ten minutes".)
 MAX_RETRY_AFTER_SECONDS = 600
 
-logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
-with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
-    SPOTIFY_API_TOKEN = f.read()
+def load_api_token():
+    """Read the current Spotify access token from disk (rewritten on refresh)."""
+    logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
+    with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
+        return f.read()
+
+
+SPOTIFY_API_TOKEN = load_api_token()
 
 
 def make_spotify_api_call(ch, method, properties, body):
+    global SPOTIFY_API_TOKEN
     msg = loads(body)
     logger.info(f'Received message from queue:\n{pformat(msg)}')
 
@@ -88,6 +94,7 @@ def make_spotify_api_call(ch, method, properties, body):
             elif r.status_code == 401:
                 logger.warning(f'HTTP 401: Access token expired. Requesting new token...')
                 refresh_spotify_auth()
+                SPOTIFY_API_TOKEN = load_api_token()
                 logger.info(f'Success: new access token received.')
                 continue
 
