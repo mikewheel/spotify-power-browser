@@ -34,6 +34,9 @@ MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 # consumer that long. (Intent of d97e8ac was "sleep at most ten minutes".)
 MAX_RETRY_AFTER_SECONDS = 600
 
+SPOTIFY_API_TOKEN = None
+
+
 def load_api_token():
     """Read the current Spotify access token from disk (rewritten on refresh)."""
     logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
@@ -41,7 +44,13 @@ def load_api_token():
         return f.read()
 
 
-SPOTIFY_API_TOKEN = load_api_token()
+def get_api_token():
+    """Lazily load and cache the access token, so this module can be imported
+    without a token file present (e.g. in tests)."""
+    global SPOTIFY_API_TOKEN
+    if SPOTIFY_API_TOKEN is None:
+        SPOTIFY_API_TOKEN = load_api_token()
+    return SPOTIFY_API_TOKEN
 
 
 def make_spotify_api_call(ch, method, properties, body):
@@ -58,7 +67,7 @@ def make_spotify_api_call(ch, method, properties, body):
         try:
             r = requests.get(
                 request_url,
-                headers={"Authorization": f'Bearer {SPOTIFY_API_TOKEN}'}
+                headers={"Authorization": f'Bearer {get_api_token()}'}
             )
         except requests.exceptions.ConnectionError:  # Connection reset by peer
             logger.warning("Connection reset by peer. Retrying...")
