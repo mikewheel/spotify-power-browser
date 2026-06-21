@@ -12,21 +12,28 @@ services:
       timeout: 10s
       retries: 20
 
-  neo4j:
-    image: "neo4j:community"
-    ports:
-      - "7687:7687"
-      - "7474:7474"
-#    volumes:
-#      - "$HOME/neo4j/data:/data"
-    environment:
-      NEO4J_AUTH: "neo4j/my_spotify_data"
-    healthcheck:
-      test: wget http://localhost:7474 || exit 1
-      start_period: 5s
-      interval: 5s
-      timeout: 10s
-      retries: 20
+  # Neo4j runs on the host via Neo4j Desktop (bolt://host.docker.internal:7687),
+  # not as a container — a containerized instance would collide on port 7687
+  # with the running Desktop, and the Desktop gives persistence + a graph
+  # browser for inspecting results. To go fully in-Docker instead: quit Neo4j
+  # Desktop, uncomment this service, drop the NEO4J_HOSTNAME override on
+  # responses_write_to_neo4j, and set neo4j_credentials.yaml to match NEO4J_AUTH.
+  #
+  # neo4j:
+  #   image: "neo4j:community"
+  #   ports:
+  #     - "7687:7687"
+  #     - "7474:7474"
+  #   volumes:
+  #     - "neo4j_data:/data"
+  #   environment:
+  #     NEO4J_AUTH: "neo4j/my_spotify_data"
+  #   healthcheck:
+  #     test: wget http://localhost:7474 || exit 1
+  #     start_period: 5s
+  #     interval: 5s
+  #     timeout: 10s
+  #     retries: 20
 
   spotify_authentication:
     image: "spotify-power-browser:latest"
@@ -79,6 +86,11 @@ services:
 
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
+    # Point this worker at Neo4j Desktop on the host rather than a container.
+    environment:
+      NEO4J_HOSTNAME: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
@@ -86,12 +98,8 @@ services:
       rabbitmq:
         condition: service_healthy
         restart: true
-      neo4j:
-        condition: service_healthy
-        restart: true
     links:
       - rabbitmq
-      - neo4j
     command: python3.11 application/response_handlers/main.py write_to_neo4j
 
   responses_follow_links:
