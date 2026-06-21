@@ -27,12 +27,10 @@ ON CREATE SET
 
 MERGE (t)<-[:CONTAINS]-(al)
 
-// Link the artists credited on the track's album. Wrapped in an independent
-// CALL {} unit subquery so an empty album.artists list cannot drop the track's
-// row before its own performing artists are linked below.
-WITH track, t, al
-CALL {
-    WITH track, t, al
+// Link the artists credited on the track's album. Independent CALL subquery so
+// an empty album.artists list can't drop the track's row before its own
+// performing artists are linked below.
+CALL (track, t, al) {
     UNWIND track.album.artists as artist
     MERGE (ar:Artist {uri: artist.uri})
     ON CREATE SET
@@ -46,9 +44,7 @@ CALL {
 }
 
 // Link the track's own performing artists
-WITH track, t
-CALL {
-    WITH track, t
+CALL (track, t) {
     UNWIND track.artists as artist
     MERGE (ar:Artist {uri: artist.uri})
     ON CREATE SET
