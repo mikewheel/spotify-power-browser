@@ -56,7 +56,7 @@ services:
       - "./data:/src/data"
     ports:
       - "8000:8000"
-    command: python3.11 application/spotify_authentication/api_authorization_web_service.py
+    command: python3 application/spotify_authentication/api_authorization_web_service.py
     healthcheck:
       # Healthy only once the OAuth flow has written an access token. This
       # gates the pipeline so a single `docker compose up` waits for the human
@@ -90,7 +90,7 @@ services:
     links:
       - rabbitmq
       - redis
-    command: bash -c "sleep 5 && python3.11 application/api_call_engine.py"
+    command: bash -c "sleep 5 && python3 application/api_call_engine.py"
 
   responses_write_to_disk:
     image: "spotify-power-browser:latest"
@@ -103,7 +103,7 @@ services:
         restart: true
     links:
       - rabbitmq
-    command: python3.11 application/response_handlers/main.py write_to_disk
+    command: python3 application/response_handlers/main.py write_to_disk
 
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
@@ -121,7 +121,7 @@ services:
         restart: true
     links:
       - rabbitmq
-    command: python3.11 application/response_handlers/main.py write_to_neo4j
+    command: python3 application/response_handlers/main.py write_to_neo4j
 
   responses_follow_links:
     image: "spotify-power-browser:latest"
@@ -138,7 +138,7 @@ services:
     links:
       - rabbitmq
       - redis
-    command: python3.11 application/response_handlers/main.py follow_links
+    command: python3 application/response_handlers/main.py follow_links
 
   requests_factory_start_crawls:
     image: "spotify-power-browser:latest"
@@ -166,7 +166,7 @@ services:
     links:
       - rabbitmq
       - redis
-    command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
+    command: bash -c "sleep 5 && python3 application/requests_factory.py"
 
   tests:
     image: "spotify-power-browser:latest"
@@ -187,7 +187,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python3.11 -m pytest tests/
+    command: python3 -m pytest tests/
 
 volumes:
   redis_data:
