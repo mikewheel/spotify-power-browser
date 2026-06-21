@@ -53,6 +53,27 @@ class SpotifyRequestFactory:
             )
         )
 
+    # Spotify's multi-id batch endpoints cap the number of ids per call.
+    BATCH_ID_LIMITS = {"tracks": 50, "albums": 20, "artists": 50}
+
+    @classmethod
+    def request_batch(cls, resource_type, ids, depth_of_search=0):
+        """Request a batch of resources via Spotify's multi-id endpoint
+        (GET /v1/{resource_type}?ids=...), chunked to the per-type id cap.
+
+        Each chunk is routed through request_url so dedup and publishing stay
+        centralized at the single choke point.
+        """
+        limit = cls.BATCH_ID_LIMITS[resource_type]
+        # De-dup ids within the call and drop falsy ones, preserving order.
+        unique_ids = list(dict.fromkeys(i for i in ids if i))
+        for start in range(0, len(unique_ids), limit):
+            chunk = unique_ids[start:start + limit]
+            cls.request_url(
+                url=f"https://api.spotify.com/v1/{resource_type}?ids={','.join(chunk)}",
+                depth_of_search=depth_of_search,
+            )
+
     @classmethod
     def request_liked_songs_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF LIKED SONGS')
