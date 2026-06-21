@@ -84,6 +84,7 @@ services:
         restart: true
       redis:
         condition: service_healthy
+        restart: true
       spotify_authentication:
         condition: service_healthy
     links:
@@ -133,6 +134,7 @@ services:
         restart: true
       redis:
         condition: service_healthy
+        restart: true
     links:
       - rabbitmq
       - redis
@@ -160,6 +162,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+        restart: true
     links:
       - rabbitmq
       - redis
