@@ -24,8 +24,10 @@ class SpotifyRequestFactory:
 
     @staticmethod
     def request_url(url, depth_of_search=0):
+        """Publish a request for `url`. Returns True if it was newly published,
+        or False if it was skipped (negative depth, or already crawled)."""
         if depth_of_search < 0:
-            return
+            return False
 
         # Dedup at the single choke point all requests flow through (seeds,
         # pagination "next", follow-links re-queues, batch chunks). SADD returns
@@ -33,7 +35,7 @@ class SpotifyRequestFactory:
         # publish time, so this also collapses duplicate in-flight requests.
         if CRAWLED_URL_DEDUP and not url_is_new(url, depth_of_search):
             logger.debug(f'Skipping already-requested URL at depth {depth_of_search}: {url}')
-            return
+            return False
 
         try:
             connection, channel = connect_to_rabbitmq_exchange(
@@ -60,6 +62,8 @@ class SpotifyRequestFactory:
                 unmark_url(url, depth_of_search)
             raise
 
+        return True
+
     # Spotify's multi-id batch endpoints cap the number of ids per call.
     BATCH_ID_LIMITS = {"tracks": 50, "albums": 20, "artists": 50}
 
@@ -84,7 +88,7 @@ class SpotifyRequestFactory:
     @classmethod
     def request_liked_songs_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF LIKED SONGS')
-        cls.request_url(
+        return cls.request_url(
             url="https://api.spotify.com/v1/me/tracks",
             depth_of_search=depth_of_search
         )
@@ -92,7 +96,7 @@ class SpotifyRequestFactory:
     @classmethod
     def request_followed_playlists_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF FOLLOWED_PLAYLISTS')
-        cls.request_url(
+        return cls.request_url(
             url="https://api.spotify.com/v1/me/playlists",
             depth_of_search=depth_of_search
         )
@@ -100,7 +104,7 @@ class SpotifyRequestFactory:
     @classmethod
     def request_followed_artists_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF FOLLOWED_ARTISTS')
-        cls.request_url(
+        return cls.request_url(
             url="https://api.spotify.com/v1/me/following?type=artist",
             depth_of_search=depth_of_search
         )
@@ -111,17 +115,24 @@ if __name__ == "__main__":
         logger.info('RESET_CRAWL set: clearing the crawled-URL dedup set for a fresh crawl.')
         reset_crawled_set()
 
+    seeded = []
     if CRAWL_LIKED_SONGS:
-        SpotifyRequestFactory.request_liked_songs_first_page(
+        seeded.append(SpotifyRequestFactory.request_liked_songs_first_page(
             depth_of_search=DEPTH_OF_SEARCH
-        )
+        ))
 
     if CRAWL_FOLLOWED_PLAYLISTS:
-        SpotifyRequestFactory.request_followed_playlists_first_page(
+        seeded.append(SpotifyRequestFactory.request_followed_playlists_first_page(
             depth_of_search=DEPTH_OF_SEARCH
-        )
+        ))
 
     if CRAWL_FOLLOWED_ARTISTS:
-        SpotifyRequestFactory.request_followed_artists_first_page(
+        seeded.append(SpotifyRequestFactory.request_followed_artists_first_page(
             depth_of_search=DEPTH_OF_SEARCH
+        ))
+
+    if seeded and not any(seeded):
+        logger.warning(
+            'No seed URLs were published - all are already in the crawled-URL set. '
+            'Set RESET_CRAWL=true for a fresh crawl.'
         )
