@@ -109,13 +109,18 @@ class SpotifyAuthCodeResource:
         </html>'''
 
 
-def serve_the_app():
+def create_app():
     app = falcon.App()
     app.add_route('/login', SpotifyLoginResource())
     app.add_route('/callback', SpotifyAuthCodeResource())
+    return app
+
+
+def serve_the_app():
+    app = create_app()
 
     with make_server('', 8000, app) as httpd:
-        print('Starting to serve at http://localhost:8000/login')
+        print('Starting to serve at http://127.0.0.1:8000/login')
         # Serve until process is killed
         httpd.serve_forever()
 
