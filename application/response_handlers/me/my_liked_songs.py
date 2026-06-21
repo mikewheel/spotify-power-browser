@@ -39,7 +39,6 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
                 song_id = song["track"]["id"]
                 song_uri = song["track"]["uri"]
                 song_is_explicit = song["track"]["explicit"]
-                song_popularity = song["track"]["popularity"]
 
                 # Album data
                 song_album_name = song["track"]["album"]["name"]
@@ -62,7 +61,6 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
                     "song_first_artist_name": song_first_artist_name,
                     "song_album_name": song_album_name,
                     "song_is_explicit": song_is_explicit,
-                    "song_popularity": song_popularity,
 
                     "song_external_url_spotify": song_external_url_spotify,
                     "song_id": song_id,

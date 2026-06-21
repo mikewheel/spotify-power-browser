@@ -11,12 +11,7 @@ ON CREATE SET
     al.album_type = album.album_type,
     al.spotify_url = album.external_urls.spotify,
     al.type = album.type,
-    al.href = album.href,
-    al.label = album.label,
-    al.popularity = album.popularity
-ON MATCH SET
-    al.label = album.label,
-    al.popularity = album.popularity
+    al.href = album.href
 
 // Skip tracks because it's paginated
 

@@ -8,7 +8,6 @@ ON CREATE SET
     t.name = track.name,
     t.explicit = track.explicit,
     t.is_local = track.is_local,
-    t.popularity = track.popularity,
     t.duration_ms = track.duration_ms,
     t.type = track.type,
     t.href = track.href,
