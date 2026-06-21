@@ -48,6 +48,13 @@ def url_is_new(url, depth_of_search):
     return get_redis_client().sadd(CRAWLED_URL_SET_KEY, _member(url, depth_of_search)) == 1
 
 
+def unmark_url(url, depth_of_search):
+    """Remove a (url, depth) from the crawled set so a request that permanently
+    failed (publish error, or fetch give-up) can be re-requested on a later
+    follow or run, instead of being silently dropped forever."""
+    return get_redis_client().srem(CRAWLED_URL_SET_KEY, _member(url, depth_of_search))
+
+
 def reset_crawled_set():
     """Delete the crawled-URL set so a fresh crawl starts clean."""
     existed = get_redis_client().delete(CRAWLED_URL_SET_KEY)

@@ -9,8 +9,10 @@ from application.config import (
     WRITE_RESPONSES_TO_DISK,
     WRITE_RESPONSES_TO_NEO4J,
     WRITE_RESPONSES_TO_SQLITE,
-    FOLLOW_LINKS_IN_RESPONSES
+    FOLLOW_LINKS_IN_RESPONSES,
+    CRAWLED_URL_DEDUP,
 )
+from application.cache.redis_client import unmark_url
 from application.spotify_authentication.refresh_token import refresh_spotify_auth
 from application.loggers import get_logger
 from application.message_queue.connect import (
@@ -70,6 +72,8 @@ def make_spotify_api_call(ch, method, properties, body):
                 http_500_error_count += 1
 
                 if http_500_error_count >= MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST:
+                    if CRAWLED_URL_DEDUP:
+                        unmark_url(request_url, depth_of_search)
                     raise requests.exceptions.HTTPError(
                         f'HTTP 500 errors for {request_url} have exceeded max retry count of '
                         f'{MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST}'
@@ -99,9 +103,13 @@ def make_spotify_api_call(ch, method, properties, body):
                 continue
 
             else:
+                if CRAWLED_URL_DEDUP:
+                    unmark_url(request_url, depth_of_search)
                 raise e
         else:
             if r.status_code != 200:
+                if CRAWLED_URL_DEDUP:
+                    unmark_url(request_url, depth_of_search)
                 raise requests.exceptions.HTTPError(f'HTTP {r.status_code} received for {request_url}.')
 
             response = r.json()

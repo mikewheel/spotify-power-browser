@@ -8,7 +8,7 @@ from application.config import (
     DEPTH_OF_SEARCH,
     RESET_CRAWL,
 )
-from application.cache.redis_client import url_is_new, reset_crawled_set
+from application.cache.redis_client import url_is_new, unmark_url, reset_crawled_set
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
 from application.message_queue.constants import RequestsExchange
 
@@ -35,23 +35,30 @@ class SpotifyRequestFactory:
             logger.debug(f'Skipping already-requested URL at depth {depth_of_search}: {url}')
             return
 
-        connection, channel = connect_to_rabbitmq_exchange(
-            exchange_name=RequestsExchange.EXCHANGE_NAME.value,
-            exchange_type=RequestsExchange.EXCHANGE_TYPE.value
-        )
-
-        logger.info(f'Requesting {url} with search depth {depth_of_search}')
-        publish_message_to_exchange(
-            channel=channel,
-            exchange=RequestsExchange.EXCHANGE_NAME.value,
-            routing_key=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value,
-            body=dumps(
-                {
-                    "request_url": url,
-                    "depth_of_search": depth_of_search
-                }
+        try:
+            connection, channel = connect_to_rabbitmq_exchange(
+                exchange_name=RequestsExchange.EXCHANGE_NAME.value,
+                exchange_type=RequestsExchange.EXCHANGE_TYPE.value
             )
-        )
+
+            logger.info(f'Requesting {url} with search depth {depth_of_search}')
+            publish_message_to_exchange(
+                channel=channel,
+                exchange=RequestsExchange.EXCHANGE_NAME.value,
+                routing_key=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value,
+                body=dumps(
+                    {
+                        "request_url": url,
+                        "depth_of_search": depth_of_search
+                    }
+                )
+            )
+        except Exception:
+            # Roll back the dedup mark so a failed enqueue isn't left permanently
+            # marked crawled (which would silently drop it forever).
+            if CRAWLED_URL_DEDUP:
+                unmark_url(url, depth_of_search)
+            raise
 
     # Spotify's multi-id batch endpoints cap the number of ids per call.
     BATCH_ID_LIMITS = {"tracks": 50, "albums": 20, "artists": 50}
