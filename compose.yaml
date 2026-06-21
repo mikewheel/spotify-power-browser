@@ -168,6 +168,27 @@ services:
       - redis
     command: bash -c "sleep 5 && python3.11 application/requests_factory.py"
 
+  tests:
+    image: "spotify-power-browser:latest"
+    # Test runner -- not part of the normal `up`. Run with:
+    #   docker compose run --rm tests
+    # It brings up rabbitmq + redis; the Neo4j tests use the host Desktop and
+    # skip if it isn't running. Tests are mounted so they change without a rebuild.
+    profiles: ["test"]
+    environment:
+      NEO4J_HOSTNAME: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - "./secrets:/src/secrets"
+      - "./tests:/src/tests"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python3.11 -m pytest tests/
+
 volumes:
   redis_data:
 
