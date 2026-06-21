@@ -44,21 +44,17 @@ class GetSingleAlbumResponseHandler(BaseResponseHandler):
             logger.debug(f'Ending recursion at {self.request_url}; depth of search equals zero.')
             return
 
+        # Album tracks (a paginated sub-resource) are intentionally not followed
+        # in either mode: tracks_of_album is unimplemented and the URL normalizes
+        # to an unmapped handler (raising in the dispatcher). Only artists are
+        # followed, so single and batch modes behave identically.
         if USE_BATCH_ENDPOINTS:
-            # Album tracks are a paginated sub-resource (not an ?ids= batch) with
-            # no handler yet, so only artists are followed in batch mode.
             SpotifyRequestFactory.request_batch(
                 "artists",
                 [artist["id"] for artist in self.response["artists"]],
                 depth_of_search=(self.depth_of_search - 1),
             )
             return
-
-        logger.info(f'Following tracks from album {self.response["name"]}')
-        SpotifyRequestFactory.request_url(
-            url=self.response["tracks"]["href"],
-            depth_of_search=(self.depth_of_search - 1)
-        )
 
         for artist in self.response["artists"]:
             logger.info(f'Following artist from album {self.response["name"]}: {artist["name"]}')

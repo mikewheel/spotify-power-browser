@@ -107,11 +107,8 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
         items = self.response["items"]
 
         if USE_BATCH_ENDPOINTS:
-            SpotifyRequestFactory.request_batch(
-                "tracks",
-                [song["track"]["id"] for song in items],
-                depth_of_search=(self.depth_of_search - 1),
-            )
+            # The page already carries full track objects (written to Neo4j by
+            # this handler), so only the album/artist neighbors need fetching.
             SpotifyRequestFactory.request_batch(
                 "albums",
                 [song["track"]["album"]["id"] for song in items],
