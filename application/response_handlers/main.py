@@ -2,7 +2,7 @@ import argparse
 from json import loads
 from urllib.parse import urlparse, parse_qs
 
-from application.config import SECRETS_DIR
+from application.config import SECRETS_DIR, SPOTIFY_API_BASE_URL
 from application.graph_database.connect import connect_to_neo4j
 from application.graph_database.initialize_database_environment import (
     initialize_database_environment as initialize_neo4j_environment
@@ -77,7 +77,7 @@ class SpotifyResponseController:
         normalized = parsed._replace(
             netloc=parsed.netloc.split(":")[0], query="", fragment=""
         )
-        if not request_url.startswith("https://api.spotify.com/v1/me"):
+        if not request_url.startswith(f"{SPOTIFY_API_BASE_URL}/v1/me"):
             normalized = normalized._replace(path=normalized.path.rsplit("/", maxsplit=1)[0])
         try:
             return cls.RESPONSE_HANDLER_URL_MAPPING[normalized.geturl()]

@@ -62,3 +62,11 @@ USE_BATCH_ENDPOINTS = _env_bool('USE_BATCH_ENDPOINTS', False)
 # Clear the Redis crawled-URL set at crawl start for a fresh run. Default off so
 # the dedup set persists across runs (resume); set RESET_CRAWL=true to start clean.
 RESET_CRAWL = _env_bool('RESET_CRAWL', False)
+
+###
+# Spotify endpoints — override to point the crawler at a local mock service.
+# (A mock must emit self-referential hrefs/next using its own base URL, since
+# the engine follows the absolute URLs in responses.)
+###
+SPOTIFY_API_BASE_URL = os.environ.get('SPOTIFY_API_BASE_URL', 'https://api.spotify.com')
+SPOTIFY_ACCOUNTS_BASE_URL = os.environ.get('SPOTIFY_ACCOUNTS_BASE_URL', 'https://accounts.spotify.com')

@@ -7,6 +7,7 @@ from application.config import (
     CRAWLED_URL_DEDUP,
     DEPTH_OF_SEARCH,
     RESET_CRAWL,
+    SPOTIFY_API_BASE_URL,
 )
 from application.cache.redis_client import url_is_new, unmark_url, reset_crawled_set
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
@@ -81,7 +82,7 @@ class SpotifyRequestFactory:
         for start in range(0, len(unique_ids), limit):
             chunk = unique_ids[start:start + limit]
             cls.request_url(
-                url=f"https://api.spotify.com/v1/{resource_type}?ids={','.join(chunk)}",
+                url=f"{SPOTIFY_API_BASE_URL}/v1/{resource_type}?ids={','.join(chunk)}",
                 depth_of_search=depth_of_search,
             )
 
@@ -89,7 +90,7 @@ class SpotifyRequestFactory:
     def request_liked_songs_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF LIKED SONGS')
         return cls.request_url(
-            url="https://api.spotify.com/v1/me/tracks",
+            url=f"{SPOTIFY_API_BASE_URL}/v1/me/tracks",
             depth_of_search=depth_of_search
         )
 
@@ -97,7 +98,7 @@ class SpotifyRequestFactory:
     def request_followed_playlists_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF FOLLOWED_PLAYLISTS')
         return cls.request_url(
-            url="https://api.spotify.com/v1/me/playlists",
+            url=f"{SPOTIFY_API_BASE_URL}/v1/me/playlists",
             depth_of_search=depth_of_search
         )
 
@@ -105,7 +106,7 @@ class SpotifyRequestFactory:
     def request_followed_artists_first_page(cls, depth_of_search):
         logger.info(f'STARTING FETCH OF FOLLOWED_ARTISTS')
         return cls.request_url(
-            url="https://api.spotify.com/v1/me/following?type=artist",
+            url=f"{SPOTIFY_API_BASE_URL}/v1/me/following?type=artist",
             depth_of_search=depth_of_search
         )
 

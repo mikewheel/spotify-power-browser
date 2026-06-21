@@ -1,6 +1,6 @@
 import requests
 
-from application.config import SECRETS_DIR
+from application.config import SECRETS_DIR, SPOTIFY_ACCOUNTS_BASE_URL
 
 SPOTIFY_CLIENT_ID_FILE = SECRETS_DIR / "spotify_client_id.secret"
 SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
@@ -12,7 +12,7 @@ def refresh_spotify_auth():
     with open(SPOTIFY_REFRESH_TOKEN_FILE, "r") as f:
         refresh_token = f.read()
 
-    r = requests.post('https://accounts.spotify.com/api/token',
+    r = requests.post(f'{SPOTIFY_ACCOUNTS_BASE_URL}/api/token',
                       data={
                           "grant_type": 'refresh_token',
                           "refresh_token": refresh_token
