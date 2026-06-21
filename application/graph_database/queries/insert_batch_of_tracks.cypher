@@ -28,35 +28,36 @@ ON CREATE SET
 
 MERGE (t)<-[:CONTAINS]-(al)
 
-// Inner for loop over artists in track's album
-WITH track UNWIND track.album.artists as artist
+// Link the artists credited on the track's album. Wrapped in an independent
+// CALL {} unit subquery so an empty album.artists list cannot drop the track's
+// row before its own performing artists are linked below.
+WITH track, t, al
+CALL {
+    WITH track, t, al
+    UNWIND track.album.artists as artist
+    MERGE (ar:Artist {uri: artist.uri})
+    ON CREATE SET
+        ar.uri = artist.uri,
+        ar.id = artist.id,
+        ar.name = artist.name,
+        ar.spotify_url = artist.external_urls.spotify,
+        ar.type = artist.type
+    MERGE (t)<-[:CREATED]-(ar)
+    MERGE (al)<-[:CREATED]-(ar)
+}
 
-MATCH (t:Track {uri: track.uri})
-MATCH (al:Album {uri: track.album.uri})
-
-MERGE (ar:Artist {uri: artist.uri})
-ON CREATE SET
-    ar.uri = artist.uri,
-    ar.id = artist.id,
-    ar.name = artist.name,
-    ar.spotify_url = artist.external_urls.spotify,
-    ar.type = artist.type
-
-MERGE (t)<-[:CREATED]-(ar)
-MERGE (al)<-[:CREATED]-(ar)
-
-// Inner for loop over track's own artists
-WITH track UNWIND track.artists as artist
-
-MATCH (t:Track {uri: track.uri})
-
-MERGE (ar:Artist {uri: artist.uri})
-ON CREATE SET
-    ar.uri = artist.uri,
-    ar.id = artist.id,
-    ar.name = artist.name,
-    ar.spotify_url = artist.external_urls.spotify,
-    ar.type = artist.type
-
-MERGE (t)<-[:CREATED]-(ar)
+// Link the track's own performing artists
+WITH track, t
+CALL {
+    WITH track, t
+    UNWIND track.artists as artist
+    MERGE (ar:Artist {uri: artist.uri})
+    ON CREATE SET
+        ar.uri = artist.uri,
+        ar.id = artist.id,
+        ar.name = artist.name,
+        ar.spotify_url = artist.external_urls.spotify,
+        ar.type = artist.type
+    MERGE (t)<-[:CREATED]-(ar)
+}
 ;
