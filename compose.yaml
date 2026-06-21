@@ -45,13 +45,16 @@ services:
     command: python3.11 application/spotify_authentication/api_authorization_web_service.py
     healthcheck:
       # Healthy only once the OAuth flow has written an access token. This
-      # gates the pipeline so a single `docker compose up` waits for the
-      # human to authorize before any crawling begins.
+      # gates the pipeline so a single `docker compose up` waits for the human
+      # to authorize before any crawling begins. The long start_period keeps the
+      # container in "starting" (not "unhealthy") while it waits for a human, so
+      # `docker compose up` won't abort the gated services if authorization takes
+      # a while; the first successful probe flips it healthy immediately.
       test: ["CMD-SHELL", "test -s /src/secrets/spotify_api_token.secret"]
       interval: 5s
       timeout: 5s
-      retries: 120
-      start_period: 5s
+      retries: 5
+      start_period: 3600s
 
   api_call_engine:
     image: "spotify-power-browser:latest"
