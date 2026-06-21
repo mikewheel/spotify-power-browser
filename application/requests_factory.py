@@ -6,8 +6,9 @@ from application.config import (
     CRAWL_FOLLOWED_PLAYLISTS,
     CRAWLED_URL_DEDUP,
     DEPTH_OF_SEARCH,
+    RESET_CRAWL,
 )
-from application.cache.redis_client import url_is_new
+from application.cache.redis_client import url_is_new, reset_crawled_set
 from application.message_queue.connect import connect_to_rabbitmq_exchange, publish_message_to_exchange
 from application.message_queue.constants import RequestsExchange
 
@@ -78,6 +79,10 @@ class SpotifyRequestFactory:
 
 
 if __name__ == "__main__":
+    if RESET_CRAWL:
+        logger.info('RESET_CRAWL set: clearing the crawled-URL dedup set for a fresh crawl.')
+        reset_crawled_set()
+
     if CRAWL_LIKED_SONGS:
         SpotifyRequestFactory.request_liked_songs_first_page(
             depth_of_search=DEPTH_OF_SEARCH

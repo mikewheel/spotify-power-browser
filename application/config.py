@@ -58,3 +58,7 @@ CRAWLED_URL_DEDUP = _env_bool('CRAWLED_URL_DEDUP', True)
 # live-verified via application/_probe_batch_endpoints.py once the rate limit
 # clears. Flip on via env (USE_BATCH_ENDPOINTS=true) after probing.
 USE_BATCH_ENDPOINTS = _env_bool('USE_BATCH_ENDPOINTS', False)
+
+# Clear the Redis crawled-URL set at crawl start for a fresh run. Default off so
+# the dedup set persists across runs (resume); set RESET_CRAWL=true to start clean.
+RESET_CRAWL = _env_bool('RESET_CRAWL', False)
