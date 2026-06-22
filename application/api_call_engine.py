@@ -33,6 +33,10 @@ MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST = 5
 # a punitive multi-hour Retry-After; we must not freeze this single synchronous
 # consumer that long. (Intent of d97e8ac was "sleep at most ten minutes".)
 MAX_RETRY_AFTER_SECONDS = 600
+# Cap on 429 retries for one request. The sleep is bounded, but a persistent ban
+# would otherwise loop forever (~10 min/iteration), pinning the worker. Give up
+# (and roll back the dedup mark) after this many so the worker can move on.
+MAX_HTTP_429_RETRIES_PER_REQUEST = 5
 
 SPOTIFY_API_TOKEN = None
 
@@ -61,6 +65,7 @@ def make_spotify_api_call(ch, method, properties, body):
     request_url = msg["request_url"]
     depth_of_search = msg["depth_of_search"]
     http_500_error_count = 0
+    http_429_error_count = 0
 
     while True:
         logger.info(f'GET: {request_url} ...')
@@ -95,6 +100,14 @@ def make_spotify_api_call(ch, method, properties, body):
                     continue
 
             elif r.status_code == 429:
+                http_429_error_count += 1
+                if http_429_error_count >= MAX_HTTP_429_RETRIES_PER_REQUEST:
+                    if CRAWLED_URL_DEDUP:
+                        unmark_url(request_url, depth_of_search)
+                    raise requests.exceptions.HTTPError(
+                        f'HTTP 429 rate limiting for {request_url} exceeded max retry count '
+                        f'of {MAX_HTTP_429_RETRIES_PER_REQUEST}'
+                    )
                 # Retry-After is usually delta-seconds but may be an HTTP-date;
                 # fall back to 60s rather than letting int() raise.
                 try:
@@ -103,8 +116,8 @@ def make_spotify_api_call(ch, method, properties, body):
                     retry_after = 60
                 seconds_to_wait = min(retry_after, MAX_RETRY_AFTER_SECONDS)
                 logger.warning(
-                    f'HTTP 429: Rate limit exceeded (Retry-After={retry_after}s). '
-                    f'Waiting {seconds_to_wait}s to retry...'
+                    f'HTTP 429 #{http_429_error_count}: Rate limit exceeded '
+                    f'(Retry-After={retry_after}s). Waiting {seconds_to_wait}s to retry...'
                 )
                 sleep(seconds_to_wait)
                 continue

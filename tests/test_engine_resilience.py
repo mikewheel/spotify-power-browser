@@ -61,3 +61,18 @@ def test_500_exhaustion_gives_up_and_rolls_back_dedup(engine_env, mock_base, red
     with pytest.raises(requests.exceptions.HTTPError):
         _call(url)                                  # 5x 500 -> give up + unmark + raise
     assert url_is_new(url, 0) is True              # True again => it was rolled back
+
+
+def test_persistent_429_gives_up_instead_of_looping_forever(engine_env, mock_base, redis_client):
+    # A persistent ban must not loop forever: bounded retries -> give up, and
+    # (like 500 exhaustion) the URL is rolled back so it stays re-requestable.
+    from application.cache.redis_client import url_is_new, reset_crawled_set
+    reset_crawled_set()
+    url = f"{mock_base}/v1/tracks/trk000006"
+    requests.post(f"{mock_base}/_control/config",
+                  json={"fail_url_substring": "trk000006", "fail_status": 429, "retry_after": 0})
+
+    assert url_is_new(url, 0) is True
+    with pytest.raises(requests.exceptions.HTTPError):
+        _call(url)                                  # always 429 -> bounded retries -> give up
+    assert url_is_new(url, 0) is True              # rolled back
