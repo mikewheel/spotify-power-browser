@@ -11,6 +11,45 @@ from unittest.mock import MagicMock
 import pytest
 
 import application.api_call_engine as engine
+from application.message_queue.connect import bind_queue_to_exchange
+
+
+def test_named_work_queue_is_durable_and_survives_a_dropped_connection():
+    # The make_api_call / response queues are NAMED: they must be durable and
+    # NOT exclusive/auto-delete, or one consumer's dropped connection deletes
+    # the queue and every request still in it (the discography-crawl failure).
+    channel = MagicMock()
+    channel.queue_declare.return_value.method.queue = "make_api_call"
+
+    bind_queue_to_exchange(
+        channel=channel,
+        exchange_name="spotify_api_requests",
+        exchange_type="direct",
+        routing_key="make_api_call",
+        queue_name="make_api_call",
+    )
+
+    kwargs = channel.queue_declare.call_args.kwargs
+    assert kwargs["durable"] is True
+    assert kwargs["exclusive"] is False
+    assert kwargs["auto_delete"] is False
+
+
+def test_unnamed_reply_queue_stays_exclusive():
+    channel = MagicMock()
+    channel.queue_declare.return_value.method.queue = "amq.gen-xyz"
+
+    bind_queue_to_exchange(
+        channel=channel,
+        exchange_name="spotify_api_requests",
+        exchange_type="direct",
+        routing_key="make_api_call",
+        queue_name=None,
+    )
+
+    kwargs = channel.queue_declare.call_args.kwargs
+    assert kwargs["exclusive"] is True
+    assert kwargs["durable"] is False
 
 
 def test_bad_request_does_not_propagate_out_of_the_callback(monkeypatch):

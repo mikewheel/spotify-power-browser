@@ -98,10 +98,13 @@ def _consume_request(body):
         try:
             r = requests.get(
                 request_url,
-                headers={"Authorization": f'Bearer {get_api_token(user_id)}'}
+                headers={"Authorization": f'Bearer {get_api_token(user_id)}'},
+                # Bound the GET so a hung request can't block the single consumer
+                # (and starve pika heartbeats) indefinitely.
+                timeout=30,
             )
-        except requests.exceptions.ConnectionError:  # Connection reset by peer
-            logger.warning("Connection reset by peer. Retrying...")
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            logger.warning("Network error/timeout reaching Spotify. Retrying...")
             sleep(5)
             continue
 
