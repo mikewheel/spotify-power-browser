@@ -99,6 +99,8 @@ services:
       RESET_CRAWL: ${RESET_CRAWL:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
+      CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
+      ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   responses_write_to_disk:
     image: "spotify-power-browser:latest"
@@ -116,6 +118,8 @@ services:
       RESET_CRAWL: ${RESET_CRAWL:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
+      CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
+      ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
@@ -125,6 +129,8 @@ services:
       RESET_CRAWL: ${RESET_CRAWL:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
+      CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
+      ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -158,6 +164,8 @@ services:
       RESET_CRAWL: ${RESET_CRAWL:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
+      CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
+      ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   requests_factory_start_crawls:
     image: "spotify-power-browser:latest"
@@ -187,9 +195,17 @@ services:
       - redis
     command: bash -c "sleep 5 && python3 application/requests_factory.py"
     environment:
+      # The discography seeder (CRAWL_ARTIST_DISCOGRAPHIES) queries Neo4j for
+      # qualifying artists, so this service needs the same host-Desktop
+      # pointer as responses_write_to_neo4j.
+      NEO4J_HOSTNAME: host.docker.internal
       RESET_CRAWL: ${RESET_CRAWL:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
+      CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
+      ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   spotify_mock:
     image: "spotify-power-browser:latest"
