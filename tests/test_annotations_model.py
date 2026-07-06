@@ -51,6 +51,13 @@ def test_section_kind_outside_vocabulary_is_custom():
     assert model.build_section_params("trk1", 0, 0, "weird bit")["section"]["kind"] == "custom"
 
 
+def test_section_explicit_end_before_start_rejected():
+    # chain invariant: end_ms >= start_ms, enforced at the builder
+    with pytest.raises(ValueError):
+        model.build_section_params("trk1", 0, 10000, "verse", end_ms=9000)
+    assert model.build_section_params("trk1", 0, 10000, "verse", end_ms=10000)  # zero-length ok
+
+
 def test_section_explicit_kind_validated():
     section = model.build_section_params("trk1", 1, 5000, "the good part", kind="drop")["section"]
     assert section["kind"] == "drop"

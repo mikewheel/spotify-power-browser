@@ -35,6 +35,11 @@ class TrackNotInGraphError(AnnotationWriteError):
             f"track {track_id!r} is not in the graph - only crawled tracks are annotatable"
         )
 
+
+class SectionBoundaryError(AnnotationWriteError):
+    """The section boundary would violate the chain invariant (NEXT strictly
+    increasing in start_ms): another section already starts at that ms."""
+
 # Section.kind vocabulary — EDM and song-form both first-class (plan 04 A).
 SECTION_KINDS = (
     "intro", "verse", "chorus", "bridge", "buildup", "drop",
@@ -108,6 +113,11 @@ def build_section_params(track_id, order, start_ms, label, kind=None, end_ms=Non
         kind = normalize_kind(label)
     elif kind not in SECTION_KINDS:
         raise ValueError(f"unknown section kind {kind!r}; expected one of {SECTION_KINDS}")
+    if end_ms is not None and int(end_ms) < int(start_ms):
+        # Chain invariant: end_ms >= start_ms, always.
+        raise ValueError(
+            f"section end_ms ({int(end_ms)}) must be >= start_ms ({int(start_ms)})"
+        )
     return {
         "section": {
             "track_id": track_id,
@@ -166,7 +176,14 @@ class Neo4jAnnotationWriter:
         params = build_section_params(track_id, order, start_ms, label, kind=kind, end_ms=end_ms)
         counters = self._execute(INSERT_SECTION_QUERY, **params)
         if counters.nodes_created == 0:
-            raise TrackNotInGraphError(track_id)
+            # Zero writes: either the Track MATCH found nothing, or the
+            # duplicate-boundary guard refused the insert. Either way, fail
+            # loudly rather than pretend success.
+            if not self.track_in_graph(track_id):
+                raise TrackNotInGraphError(track_id)
+            raise SectionBoundaryError(
+                f"a section of track {track_id!r} already starts at {int(start_ms)}ms"
+            )
         return {"type": "section", **params["section"]}
 
     def undo(self, record):

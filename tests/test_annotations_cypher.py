@@ -3,7 +3,11 @@ Neo4j — the neo4j_driver fixture skips the module when the database isn't
 reachable. Distinctive CYTESTANN uris/ids keep cleanup surgical."""
 import pytest
 
-from application.annotations.model import Neo4jAnnotationWriter, TrackNotInGraphError
+from application.annotations.model import (
+    Neo4jAnnotationWriter,
+    SectionBoundaryError,
+    TrackNotInGraphError,
+)
 
 TRACK_ID = "CYTESTANN1"
 MISSING_TRACK_ID = "CYTESTANN_NOT_CRAWLED"
@@ -81,6 +85,68 @@ def test_sections_chain_next_and_close_open_ends(writer, neo4j_driver):
         track_id=TRACK_ID,
     )
     assert [(record["a"], record["b"]) for record in records] == [(0, 1), (1, 2)]
+
+
+def _chain(neo4j_driver):
+    """(a.label, b.label) pairs of the NEXT chain, ordered by time."""
+    records, _, _ = neo4j_driver.execute_query(
+        "MATCH (t:Track {id: $track_id})-[:HAS_SECTION]->(a:Section)-[:NEXT]->(b:Section) "
+        "WITH a, b ORDER BY a.start_ms "
+        "RETURN a.label AS a, b.label AS b",
+        track_id=TRACK_ID,
+    )
+    return [(record["a"], record["b"]) for record in records]
+
+
+def test_out_of_order_insert_chains_by_time_not_insertion_order(writer, neo4j_driver):
+    """The verifier's reproduction: 'drop 1' entered first at 2:10, 'intro'
+    remembered afterwards at 0:00. The chain must come out in time order with
+    no negative-length section."""
+    writer.add_section(TRACK_ID, 0, 130000, "drop 1")
+    writer.add_section(TRACK_ID, 1, 0, "intro")
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [(s["label"], s["start_ms"], s["end_ms"]) for s in sections] == [
+        ("intro", 0, 130000),
+        ("drop 1", 130000, None),
+    ]
+    assert _chain(neo4j_driver) == [("intro", "drop 1")]
+    # invariant: end_ms >= start_ms everywhere
+    assert all(s["end_ms"] is None or s["end_ms"] >= s["start_ms"] for s in sections)
+
+
+def test_insert_between_existing_sections_relinks_the_chain(writer, neo4j_driver):
+    writer.add_section(TRACK_ID, 0, 0, "intro")
+    writer.add_section(TRACK_ID, 1, 130000, "drop 1")
+    writer.add_section(TRACK_ID, 2, 64000, "buildup 1")  # remembered late
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [(s["label"], s["start_ms"], s["end_ms"]) for s in sections] == [
+        ("intro", 0, 64000),
+        ("buildup 1", 64000, 130000),
+        ("drop 1", 130000, None),
+    ]
+    # the old intro->drop edge was re-pointed through the new section
+    assert _chain(neo4j_driver) == [("intro", "buildup 1"), ("buildup 1", "drop 1")]
+
+
+def test_duplicate_section_start_is_rejected_loudly(writer):
+    writer.add_section(TRACK_ID, 0, 64000, "drop 1")
+    with pytest.raises(SectionBoundaryError):
+        writer.add_section(TRACK_ID, 1, 64000, "drop 1 again")
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [s["label"] for s in sections] == ["drop 1"]  # nothing half-written
+
+
+def test_undo_middle_section_bridges_the_chain(writer, neo4j_driver):
+    writer.add_section(TRACK_ID, 0, 0, "intro")
+    writer.add_section(TRACK_ID, 1, 130000, "drop 1")
+    middle = writer.add_section(TRACK_ID, 2, 64000, "buildup 1")
+    writer.undo(middle)
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [(s["label"], s["start_ms"], s["end_ms"]) for s in sections] == [
+        ("intro", 0, 130000),  # chain-derived end re-derived, not left dangling
+        ("drop 1", 130000, None),
+    ]
+    assert _chain(neo4j_driver) == [("intro", "drop 1")]
 
 
 def test_explicit_end_ms_is_not_overwritten_by_next_boundary(writer):

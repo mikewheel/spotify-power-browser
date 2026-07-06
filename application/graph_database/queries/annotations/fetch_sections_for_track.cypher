@@ -6,5 +6,8 @@ RETURN s.id AS id,
        s.label AS label,
        s.kind AS kind,
        s.created_at AS created_at
-ORDER BY s.order
+// Chain order is TIME order (NEXT is strictly increasing in start_ms);
+// `order` is only the capture-sequence id, which diverges from time order
+// when a boundary is entered late.
+ORDER BY s.start_ms
 ;

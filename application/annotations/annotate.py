@@ -14,7 +14,11 @@ without a TTY.
 """
 import argparse
 
-from application.annotations.model import Neo4jAnnotationWriter, normalize_kind
+from application.annotations.model import (
+    AnnotationWriteError,
+    Neo4jAnnotationWriter,
+    normalize_kind,
+)
 from application.annotations.timecode import format_ms, parse_position
 from application.config import SECRETS_DIR
 from application.loggers import get_logger
@@ -123,7 +127,12 @@ def run_annotation_loop(writer, track, in_=input, out=print):
                 out("empty - discarded")
                 continue
             order = writer.next_section_order(track["id"])
-            record = writer.add_section(track["id"], order, start_ms, label)
+            try:
+                record = writer.add_section(track["id"], order, start_ms, label)
+            except AnnotationWriteError as exc:
+                # e.g. a section already starts at this ms - nothing written.
+                out(f"!! not saved: {exc}")
+                continue
             session.append(record)
             out(f'section #{order} [{normalize_kind(label)}] @ {format_ms(start_ms)}: {label}')
         elif command == "u":
