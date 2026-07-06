@@ -29,3 +29,8 @@ REQUIRE cue.id IS UNIQUE;
 CREATE CONSTRAINT section_id_uniqueness IF NOT EXISTS
 FOR (section:Section)
 REQUIRE section.id IS UNIQUE;
+
+// --- 08 playlist write-back: ManagedPlaylist (application/playlists/) ---
+CREATE CONSTRAINT managed_playlist_spotify_id_uniqueness IF NOT EXISTS
+FOR (playlist:ManagedPlaylist)
+REQUIRE playlist.spotify_id IS UNIQUE;
