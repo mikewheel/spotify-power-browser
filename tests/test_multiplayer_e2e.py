@@ -212,6 +212,51 @@ def test_migration_0001_lifts_flags_into_user_liked_rels(throwaway_graph):
     assert records[0]["c"] == 1
 
 
+def test_migration_0001_rerun_does_not_clobber_liked_added_at(throwaway_graph):
+    # After 0001 runs, later crawls may rewrite the legacy node prop
+    # (last-writer-wins across users, pre-guard). A blessed re-run must NOT
+    # push that value over the LIKED rel's real per-user timestamp.
+    me = f"{MIGRATION_MARK}-user"
+    throwaway_graph.execute_query(
+        f"CREATE (:Track {{uri: 'spotify:track:{MIGRATION_MARK}1', id: '{MIGRATION_MARK}1', "
+        f"liked_songs: true, date_added_to_liked_songs: '2020-02-02T00:00:00Z'}})")
+    params = build_standard_params(me=me, display_name="Mig Test")
+    run_migration(throwaway_graph, "0001_multiplayer_ownership", params)
+
+    # ...someone else's crawl (or a re-crawl) rewrites the node prop...
+    throwaway_graph.execute_query(
+        f"MATCH (t:Track {{id: '{MIGRATION_MARK}1'}}) "
+        "SET t.date_added_to_liked_songs = '2023-05-05T00:00:00Z'")
+    run_migration(throwaway_graph, "0001_multiplayer_ownership", params)
+
+    records, _, _ = throwaway_graph.execute_query(
+        "MATCH (:User {id: $me})-[l:LIKED]->() RETURN l.added_at AS added_at", me=me)
+    assert [r["added_at"] for r in records] == ["2020-02-02T00:00:00Z"]  # kept
+
+
+def test_migration_0001_aborts_on_a_multiplayer_graph(throwaway_graph):
+    # 0001 lifts EVERY Track.liked_songs=true flag onto $me. Once any OTHER
+    # user's (:User)-[:LIKED] layer exists, a re-run would misattribute their
+    # likes to $me (the ghost-ownership bug) — the runner must refuse, loudly.
+    me = f"{MIGRATION_MARK}-alice"
+    other = f"{MIGRATION_MARK}-bob"
+    throwaway_graph.execute_query(
+        f"CREATE (t:Track {{uri: 'spotify:track:{MIGRATION_MARK}bx', id: '{MIGRATION_MARK}bx', "
+        f"liked_songs: true, date_added_to_liked_songs: '2023-05-05T00:00:00Z'}}), "
+        f"(b:User {{id: '{other}'}})-[:LIKED {{added_at: '2023-05-05T00:00:00Z'}}]->(t)")
+
+    with pytest.raises(RuntimeError, match="(?i)pre-multiplayer"):
+        run_migration(throwaway_graph, "0001_multiplayer_ownership",
+                      build_standard_params(me=me, display_name="Alice"))
+
+    # ...and nothing was written: alice owns none of bob's tracks.
+    records, _, _ = throwaway_graph.execute_query(
+        "OPTIONAL MATCH (u:User {id: $me}) "
+        "OPTIONAL MATCH (u)-[l:LIKED]->() RETURN u, count(l) AS c", me=me)
+    assert records[0]["u"] is None
+    assert records[0]["c"] == 0
+
+
 def test_migration_runner_refuses_the_0002_stub_without_force(throwaway_graph):
     with pytest.raises(RuntimeError, match="DO NOT RUN"):
         run_migration(throwaway_graph, "0002_drop_legacy_liked_props",

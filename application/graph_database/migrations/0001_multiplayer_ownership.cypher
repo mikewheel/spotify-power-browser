@@ -17,7 +17,12 @@
 // (--me defaults to the primary user recorded by the multi-user OAuth flow,
 // when one exists.)
 //
-// Idempotent: every statement is MERGE-based, so re-running is safe.
+// Idempotent ONLY on a still-single-user graph: every statement is
+// MERGE-based and the LIKED added_at SET coalesces (never clobbers), so
+// re-running is safe UNTIL another user's (:User)-[:LIKED] layer exists.
+// Past that point the runner ABORTS: per-user crawls could have flagged
+// their own tracks liked_songs=true, and statement 2 would gift those to
+// $me. 0001 is strictly a pre-multiplayer migration (guard in run.py).
 //
 // ROLLBACK / DEPRECATION PLAN: the legacy node properties (Track.liked_songs,
 // Track.date_added_to_liked_songs, and the Album/Artist liked_songs flags)
@@ -40,11 +45,13 @@ SET u.display_name = coalesce($display_name, u.display_name)
 
 // 2. Liked songs: node flag -> (:User)-[:LIKED {added_at}] relationship.
 //    added_at carries the Spotify library timestamp forward, preserving the
-//    "when did I like this" signal per user instead of per node.
+//    "when did I like this" signal per user instead of per node. coalesce:
+//    a re-run must never overwrite an already-lifted timestamp with whatever
+//    a later crawl left on the node prop.
 MATCH (u:User {id: $me})
 MATCH (t:Track) WHERE t.liked_songs = true
 MERGE (u)-[l:LIKED]->(t)
-SET l.added_at = t.date_added_to_liked_songs
+SET l.added_at = coalesce(l.added_at, t.date_added_to_liked_songs)
 ;
 
 // 3. Plan 08's ManagedPlaylist nodes were anchored standalone ("the (:User)

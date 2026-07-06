@@ -64,6 +64,36 @@ def build_standard_params(me=None, display_name=None):
     }
 
 
+# Migration 0001 is STRICTLY pre-multiplayer: it lifts EVERY legacy
+# Track.liked_songs=true flag into ($me)-[:LIKED] edges. Once any OTHER user's
+# ownership layer exists in the graph, those flags are no longer guaranteed to
+# be $me's history, so a re-run would misattribute other users' likes to $me
+# (exactly the ghost-ownership bug the engine's bearer guard prevents).
+_0001_FOREIGN_LIKED_QUERY = """
+MATCH (owner)-[l:LIKED]->()
+WHERE NOT (owner:User AND owner.id = $me)
+RETURN coalesce(owner.id, '<non-User owner>') AS owner, count(l) AS liked_edges
+ORDER BY owner LIMIT 5
+"""
+
+
+def assert_graph_is_still_premultiplayer(session, me, migration_name):
+    """Abort 0001 (loudly) when any LIKED edge not owned by $me exists."""
+    foreign = session.run(_0001_FOREIGN_LIKED_QUERY, {"me": me}).data()
+    if foreign:
+        owners = ", ".join(f"{row['owner']} ({row['liked_edges']} LIKED)" for row in foreign)
+        raise RuntimeError(
+            f"REFUSING to run {migration_name}: this graph already has a "
+            f"multiplayer ownership layer beyond $me={me!r} — LIKED edges owned "
+            f"by: {owners}. Migration 0001 lifts EVERY Track.liked_songs=true "
+            f"flag onto $me, and per-user crawls may have set that flag on "
+            f"OTHER users' tracks, so re-running now would misattribute their "
+            f"likes to {me!r} and corrupt every overlap query. 0001 is strictly "
+            f"a PRE-multiplayer migration; on this graph it has already served "
+            f"its purpose and must not run again."
+        )
+
+
 def run_migration(driver, name, params, database="neo4j", force=False):
     """Execute one migration file transactionally. Returns per-statement
     (nodes_created, relationships_created, properties_set) counter tuples."""
@@ -77,6 +107,8 @@ def run_migration(driver, name, params, database="neo4j", force=False):
     logger.info(f"Running migration {path.name}: {len(statements)} statement(s)")
     counters = []
     with driver.session(database=database) as session:
+        if path.stem.startswith("0001"):
+            assert_graph_is_still_premultiplayer(session, params.get("me"), path.name)
         with session.begin_transaction() as tx:
             for i, statement in enumerate(statements, start=1):
                 summary = tx.run(statement, params).consume()

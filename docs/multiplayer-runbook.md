@@ -17,7 +17,12 @@ relationship layer: `(:User {id})-[:LIKED {added_at}]->(:Track)`, plus
        0001_multiplayer_ownership --me <your_spotify_user_id> --display-name "You"
    ```
 
-   Idempotent — re-running is safe. Your Spotify user id is the `id` field of
+   Idempotent **while the graph is still yours alone** — re-running is safe
+   until another user's `(:User)-[:LIKED]` layer exists, at which point the
+   runner refuses with an explanation (0001 lifts every legacy `liked_songs`
+   flag onto `--me`, so on a multiplayer graph a re-run would misattribute
+   other users' likes to you). Run it before the first friend, not after.
+   Your Spotify user id is the `id` field of
    `GET /v1/me` (also shown on the `/login` page once you've re-authorized).
    The legacy node properties (`liked_songs`, `date_added_to_liked_songs`)
    are **kept for one release** as the rollback path; the cleanup migration
