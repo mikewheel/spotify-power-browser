@@ -89,7 +89,7 @@ requests_factory ──► Requests exchange ──► api_call_engine ──►
 - [x] **Cap the 429 backoff** at 10 min (`max`→`min`) so a punitive `Retry-After` can't freeze the worker.
 - [x] **Redis crawled-URL dedup** — durable Redis service (AOF + named volume); one persistent `spb:crawled_urls` set; `SADD`-skip at the `request_url` choke point (`CRAWLED_URL_DEDUP`, default on); `RESET_CRAWL` for a fresh crawl. The fix for the request flood.
 - [x] **Batch endpoints behind a feature flag** (`USE_BATCH_ENDPOINTS`, **default off**) — `request_batch` (chunked `?ids=`, caps 50/20/50) + "Get Several" handlers + `UNWIND` Cypher + dispatcher routing + `follow_links` branch. A 20-song page → 3 calls instead of ~67 (~22× fewer at 12k scale).
-- [ ] **Live-verify batch access** post rate-limit cooldown (~2026-06-22) via `_probe_batch_endpoints.py`; if 200, set `USE_BATCH_ENDPOINTS=true` via env. _Existing apps currently retain batch endpoints, but Spotify only **postponed** removing them — keep the per-item fallback._
+- [x] **Live-verify batch access** — verified **2026-07-06** post-cooldown: the `?ids=` batch endpoints for tracks/albums/artists all return `200` for this app, so live crawls now run with `USE_BATCH_ENDPOINTS=true`. _Spotify only **postponed** removing them, so the per-item fallback (flag off) stays._
 - [ ] _(later)_ Cross-response Neo4j batching (buffer N / flush on interval) — secondary; the API-call batching above is the bigger win.
 - [ ] _(later)_ Remove the dead `check_url_match()` stubs.
 
