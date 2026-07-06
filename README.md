@@ -105,6 +105,30 @@ docker compose run --rm tests
 A pytest suite (unit + integration) that brings up RabbitMQ + Redis and targets
 the host Neo4j Desktop; integration tests skip if a service is down.
 
+## Annotations (notes, cues, section maps)
+
+Timestamped listening annotations over crawled tracks (plan 04, phases A–B):
+`(:Track)-[:HAS_NOTE|HAS_CUE|HAS_SECTION]->(…)`, sections chained with `NEXT`.
+
+- **Cold entry** — search a track by name in the graph, annotate from prompts:
+  ```bash
+  docker compose run --rm responses_write_to_neo4j \
+      python3 -m application.annotations.annotate "track name"
+  ```
+- **Live capture** — put an album on (any device), keep a terminal open, tap
+  keys as it plays. Polls `/v1/me/player` ~1s; hotkeys: `n` note, `c` cue,
+  `s` section boundary, `u` undo, `+`/`-` nudge 500ms, `q` quit + summary:
+  ```bash
+  docker compose run --rm responses_write_to_neo4j \
+      python3 -m application.annotations.listen
+  ```
+
+> **Scope note:** live capture reads `GET /v1/me/player`, which requires the
+> `user-read-playback-state` OAuth scope — part of the bundled re-auth
+> (docs/plans/README.md, "Do these first"); until you re-authorize, it 403s
+> against live Spotify. It works today against the mock:
+> `docker compose run --rm -e SPOTIFY_API_BASE_URL=http://spotify_mock …`.
+
 ## Stack
 
 Python 3.13 · Poetry 2.4 · RabbitMQ 4 · Redis 8 · Neo4j 6 (driver) · Falcon 4 ·
