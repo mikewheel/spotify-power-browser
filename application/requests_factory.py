@@ -1,6 +1,9 @@
 from json import dumps
 
 from application.config import (
+    APPLICATION_DIR,
+    ARTIST_AFFINITY_MIN,
+    CRAWL_ARTIST_DISCOGRAPHIES,
     CRAWL_LIKED_SONGS,
     CRAWL_FOLLOWED_ARTISTS,
     CRAWL_FOLLOWED_PLAYLISTS,
@@ -110,6 +113,50 @@ class SpotifyRequestFactory:
             depth_of_search=depth_of_search
         )
 
+    # Depth for discography seeds (plan 01). The chain is exactly two resource
+    # hops deep, decrementing at each follow like every other handler:
+    #   seed  GET /v1/artists/{id}/albums            depth 2  (album-id harvest)
+    #   ->    GET /v1/albums?ids=...                 depth 1  (full albums; the
+    #         handler batches the albums' track credits -- the collab frontier)
+    #   ->    GET /v1/artists?ids=...                depth 0  (frontier
+    #         enrichment; the artists handler is terminal, so the crawl ends)
+    # Pagination ("next" links, including an album's nested tracks.next) is
+    # re-queued at the SAME depth -- it continues a resource, it isn't a hop.
+    # Frontier artists' own discographies are never crawled: only this seeder
+    # publishes /v1/artists/{id}/albums URLs, and it only selects artists with
+    # liked tracks (depth 3 territory is a separate, deliberate decision).
+    DISCOGRAPHY_SEED_DEPTH = 2
+
+    @classmethod
+    def request_artist_discographies(cls, driver, depth_of_search=DISCOGRAPHY_SEED_DEPTH):
+        """Seed the discography crawl (plan 01): one albums-list request per
+        artist with >= ARTIST_AFFINITY_MIN liked tracks (read from Neo4j).
+        include_groups excludes compilations/appears_on deliberately (that's
+        where third-party compilation noise lives). Returns the per-seed
+        published/skipped booleans, like the other seed entrypoints."""
+        with open(
+            APPLICATION_DIR / "graph_database" / "queries" / "discovery"
+            / "fetch_discography_seed_artist_ids.cypher", "r"
+        ) as f:
+            query = f.read()
+
+        records, _, _ = driver.execute_query(query, affinity_min=ARTIST_AFFINITY_MIN)
+        logger.info(
+            f'STARTING DISCOGRAPHY CRAWL: {len(records)} artists have >= '
+            f'{ARTIST_AFFINITY_MIN} liked tracks'
+        )
+
+        return [
+            cls.request_url(
+                url=(
+                    f"{SPOTIFY_API_BASE_URL}/v1/artists/{record['id']}/albums"
+                    f"?include_groups=album,single&limit=50"
+                ),
+                depth_of_search=depth_of_search,
+            )
+            for record in records
+        ]
+
 
 if __name__ == "__main__":
     if RESET_CRAWL:
@@ -131,6 +178,21 @@ if __name__ == "__main__":
         seeded.append(SpotifyRequestFactory.request_followed_artists_first_page(
             depth_of_search=DEPTH_OF_SEARCH
         ))
+
+    if CRAWL_ARTIST_DISCOGRAPHIES:
+        # Import here: only the discography seeder needs a Neo4j connection
+        # (the other seeds are static /v1/me URLs), so the default crawl path
+        # stays free of the graph-database dependency.
+        from application.config import SECRETS_DIR
+        from application.graph_database.connect import connect_to_neo4j
+
+        neo4j_driver = connect_to_neo4j(SECRETS_DIR / "neo4j_credentials.yaml")
+        try:
+            seeded.extend(SpotifyRequestFactory.request_artist_discographies(
+                driver=neo4j_driver
+            ))
+        finally:
+            neo4j_driver.close()
 
     if seeded and not any(seeded):
         logger.warning(
