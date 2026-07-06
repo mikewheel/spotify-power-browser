@@ -5,6 +5,7 @@ Endpoints (api.spotify.com facade):
   GET  /v1/me/tracks?offset=&limit=     paginated saved tracks (self-referential next)
   GET  /v1/{tracks,albums,artists}/{id} single resource (404 if unknown)
   GET  /v1/{tracks,albums,artists}?ids= batch (null for unknown ids)
+  GET  /v1/me/player                    playback state (204 if none; see catalog player_*)
 Auth (accounts.spotify.com facade):
   POST /api/token                       fake token (authorization_code / refresh_token)
   GET  /authorize                       redirect to the callback with a fake code
@@ -119,18 +120,33 @@ class ControlConfigResource:
         for key in INJECTION:
             if key in cfg:
                 INJECTION[key] = cfg[key]
-        resp.media = dict(INJECTION)
+        player = catalog.configure_player(cfg)  # player_* keys (plan 04 phase B)
+        resp.media = {**INJECTION, **player}
 
 
 class ControlResetResource:
     def on_post(self, req, resp):
         INJECTION.update(_default_injection())
+        catalog.reset_player()
         resp.media = dict(INJECTION)
 
 
 class HealthResource:
     def on_get(self, req, resp):
         resp.media = {"status": "ok"}
+
+
+class PlayerResource:
+    """GET /v1/me/player (plan 04 phase B): currently-playing state, scripted
+    via /_control/config player_* keys. 204 like the real API when there's no
+    active device (player_track_id: null)."""
+
+    def on_get(self, req, resp):
+        state = catalog.player_state()
+        if state is None:
+            resp.status = falcon.HTTP_204
+            return
+        resp.media = state
 
 
 def create_app():
@@ -144,6 +160,7 @@ def create_app():
     app.add_route("/_control/config", ControlConfigResource())
     app.add_route("/_control/reset", ControlResetResource())
     app.add_route("/_control/health", HealthResource())
+    app.add_route("/v1/me/player", PlayerResource())
     return app
 
 
