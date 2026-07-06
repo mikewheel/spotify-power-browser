@@ -29,7 +29,14 @@ with open(SPOTIFY_CLIENT_SECRET_FILE, "r") as f:
 class SpotifyLoginResource:
 
     def on_get(self, req, resp):
-        scopes = "playlist-read-private user-library-read user-follow-read"
+        # Bundled scope expansion for plans 02 (listening history: recently-played
+        # + top items), 04 (playback-state polling), and 08 (playlist write-back).
+        # One re-auth unlocks all three (docs/plans/README.md "Do these first" #2).
+        scopes = (
+            "playlist-read-private user-library-read user-follow-read "
+            "user-read-recently-played user-top-read user-read-playback-state "
+            "playlist-modify-private"
+        )
 
         query_params = urlencode({"response_type": 'code',
                                   "client_id": SPOTIFY_CLIENT_ID,

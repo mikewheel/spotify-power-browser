@@ -464,3 +464,157 @@ def album_tracks_page(album_id, offset, limit):
         items_all, offset, limit,
         href_base=f"{PUBLIC_BASE_URL}/v1/albums/{album_id}/tracks",
     )
+
+
+###
+# Playlist state (plan 08 T3) — in-memory CRUD backing the playlist write-back
+# sync module's endpoints. Unlike the purely functional catalog above, created
+# playlists are mutable state; POST /_control/reset clears them
+# (reset_playlists). Track membership is validated against the functional
+# catalog (Spotify 400s on unknown/malformed URIs — a permissive mock would
+# hide sync bugs, the PR #16 lesson).
+###
+
+MOCK_USER_ID = "mockuser"
+
+_PLAYLISTS = {}
+_PLAYLIST_SEQ = {"playlist": 0, "snapshot": 0}
+
+
+def current_user():
+    """GET /v1/me payload: the fake user playlists get created under."""
+    return {
+        "id": MOCK_USER_ID,
+        "display_name": "Mock User",
+        "type": "user",
+        "uri": f"spotify:user:{MOCK_USER_ID}",
+        "href": f"{PUBLIC_BASE_URL}/v1/users/{MOCK_USER_ID}",
+        "external_urls": {"spotify": f"https://open.spotify.com/user/{MOCK_USER_ID}"},
+    }
+
+
+def reset_playlists():
+    """Back to an empty playlist store (called by POST /_control/reset)."""
+    _PLAYLISTS.clear()
+    _PLAYLIST_SEQ["playlist"] = 0
+    _PLAYLIST_SEQ["snapshot"] = 0
+
+
+def _next_snapshot_id():
+    _PLAYLIST_SEQ["snapshot"] += 1
+    return f"snap{_PLAYLIST_SEQ['snapshot']:06d}"
+
+
+def track_id_from_uri(uri):
+    """'spotify:track:trk000001' -> 'trk000001' when the id resolves in this
+    catalog, else None (the caller answers 400, like Spotify)."""
+    if not isinstance(uri, str) or not uri.startswith("spotify:track:"):
+        return None
+    track_id = uri.rsplit(":", 1)[-1]
+    return track_id if get_by_id("tracks", track_id) is not None else None
+
+
+def create_playlist(owner_id, name, description="", public=False):
+    """POST /v1/users/{user_id}/playlists: a new empty playlist object."""
+    _PLAYLIST_SEQ["playlist"] += 1
+    playlist_id = f"pl{_PLAYLIST_SEQ['playlist']:06d}"
+    _PLAYLISTS[playlist_id] = {
+        "owner_id": owner_id,
+        "name": name,
+        "description": description,
+        "public": bool(public),
+        "snapshot_id": _next_snapshot_id(),
+        "track_ids": [],
+    }
+    return playlist_object(playlist_id)
+
+
+def playlist_object(playlist_id):
+    """The full API-shaped playlist object, or None if unknown."""
+    state = _PLAYLISTS.get(playlist_id)
+    if state is None:
+        return None
+    return {
+        "id": playlist_id,
+        "uri": f"spotify:playlist:{playlist_id}",
+        "type": "playlist",
+        "name": state["name"],
+        "description": state["description"],
+        "public": state["public"],
+        "collaborative": False,
+        "owner": {
+            "id": state["owner_id"],
+            "type": "user",
+            "uri": f"spotify:user:{state['owner_id']}",
+        },
+        "snapshot_id": state["snapshot_id"],
+        "href": f"{PUBLIC_BASE_URL}/v1/playlists/{playlist_id}",
+        "external_urls": {"spotify": f"https://open.spotify.com/playlist/{playlist_id}"},
+        "tracks": {
+            "href": f"{PUBLIC_BASE_URL}/v1/playlists/{playlist_id}/tracks?offset=0&limit=100",
+            "total": len(state["track_ids"]),
+        },
+    }
+
+
+def playlist_tracks_page(playlist_id, offset, limit):
+    """GET /v1/playlists/{id}/tracks: a page with a self-referential `next`."""
+    state = _PLAYLISTS.get(playlist_id)
+    if state is None:
+        return None
+    ids = state["track_ids"]
+    items = [
+        {"added_at": "2026-01-01T00:00:00Z", "track": get_by_id("tracks", track_id)}
+        for track_id in ids[offset:offset + limit]
+    ]
+    next_offset = offset + limit
+    next_url = (
+        f"{PUBLIC_BASE_URL}/v1/playlists/{playlist_id}/tracks?offset={next_offset}&limit={limit}"
+        if next_offset < len(ids) else None
+    )
+    return {
+        "href": f"{PUBLIC_BASE_URL}/v1/playlists/{playlist_id}/tracks?offset={offset}&limit={limit}",
+        "items": items,
+        "limit": limit,
+        "offset": offset,
+        "next": next_url,
+        "total": len(ids),
+    }
+
+
+def add_playlist_tracks(playlist_id, track_ids, position=None):
+    """Append (or insert at position) already-validated track ids; returns the
+    new snapshot_id, or None if the playlist is unknown."""
+    state = _PLAYLISTS.get(playlist_id)
+    if state is None:
+        return None
+    if position is None:
+        state["track_ids"].extend(track_ids)
+    else:
+        state["track_ids"][int(position):int(position)] = track_ids
+    state["snapshot_id"] = _next_snapshot_id()
+    return state["snapshot_id"]
+
+
+def remove_playlist_tracks(playlist_id, track_ids):
+    """Remove ALL occurrences of each id (Spotify's remove-by-URI semantics);
+    returns the new snapshot_id, or None if the playlist is unknown."""
+    state = _PLAYLISTS.get(playlist_id)
+    if state is None:
+        return None
+    doomed = set(track_ids)
+    state["track_ids"] = [t for t in state["track_ids"] if t not in doomed]
+    state["snapshot_id"] = _next_snapshot_id()
+    return state["snapshot_id"]
+
+
+def change_playlist_details(playlist_id, name=None, description=None):
+    """PUT /v1/playlists/{id}: update name/description. True, or None if unknown."""
+    state = _PLAYLISTS.get(playlist_id)
+    if state is None:
+        return None
+    if name is not None:
+        state["name"] = name
+    if description is not None:
+        state["description"] = description
+    return True
