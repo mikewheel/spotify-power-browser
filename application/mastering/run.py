@@ -17,6 +17,7 @@ graph has grown. Requires tracks to carry `isrc` — run
 `python -m application.mastering.backfill` first after upgrading old graphs.
 """
 import os
+from collections import Counter
 
 from application.config import APPLICATION_DIR, SECRETS_DIR
 from application.graph_database.connect import connect_to_neo4j, execute_query_against_neo4j
@@ -71,6 +72,21 @@ def write_mastering_result(result, driver, database="neo4j"):
         }
         for c in result.clusters
     ]
+
+    # Belt and suspenders (cluster_tracks already guarantees uniqueness): two
+    # clusters sharing a song_id would MERGE onto the same (:Song), silently
+    # undoing a manual split. Refuse the whole payload before any graph I/O —
+    # fail loudly over corrupt silently.
+    duplicate_ids = sorted(
+        song_id
+        for song_id, count in Counter(c["song_id"] for c in clusters_param).items()
+        if count > 1
+    )
+    if duplicate_ids:
+        raise ValueError(
+            f"Refusing to write mastering result: duplicate Song ids across "
+            f"clusters {duplicate_ids} would merge distinct clusters onto one (:Song)."
+        )
 
     merge_clusters = _read_query("merge_song_clusters.cypher")
     for start in range(0, len(clusters_param), CLUSTER_WRITE_BATCH_SIZE):

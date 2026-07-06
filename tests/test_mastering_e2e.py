@@ -139,6 +139,51 @@ def test_catalog_module_twins_cluster_without_http():
 
 
 # ---------------------------------------------------------------------------
+# Write-layer guards (pure — no Neo4j needed)
+# ---------------------------------------------------------------------------
+
+def _plain_rec(tid, name, isrc):
+    return {
+        "id": tid, "name": name, "isrc": isrc, "linked_from_id": None,
+        "duration_ms": 200000, "explicit": False,
+        "artist_ids": ["artA"], "artist_names": ["Artist A"],
+    }
+
+
+def test_write_mastering_result_hard_fails_on_duplicate_song_ids():
+    """Belt and suspenders for the shared-ISRC split: two clusters with one
+    song_id would MERGE onto the same (:Song), silently undoing the split —
+    refuse the whole payload BEFORE any graph I/O (driver=None proves the
+    check fires first)."""
+    from dataclasses import replace
+
+    result = cluster_tracks([
+        _plain_rec("t1", "Completely Different", "ISRCX1"),
+        _plain_rec("t2", "Another Thing Entirely", "ISRCX2"),
+    ])
+    assert len(result.clusters) == 2
+    # Forge the duplicate (cluster_tracks itself must never produce one).
+    result.clusters[1] = replace(result.clusters[1], song_id=result.clusters[0].song_id)
+
+    with pytest.raises(ValueError, match="[Dd]uplicate"):
+        write_mastering_result(result, driver=None)
+
+
+def test_shared_isrc_split_survives_the_write_payload():
+    """The trk000052/53 shape: shared ISRC, user splits the pair. The payload
+    must carry two DISTINCT song ids so the graph cannot re-unite them."""
+    result = cluster_tracks(
+        [
+            _plain_rec("t1", "Neon Skyline", "USMCK2600052"),
+            _plain_rec("t2", "Neon Skyline - Deluxe Edition", "USMCK2600052"),
+        ],
+        overrides=Overrides(splits=[["t2"]]),
+    )
+    ids = [c.song_id for c in result.clusters]
+    assert len(ids) == 2 and len(set(ids)) == 2
+
+
+# ---------------------------------------------------------------------------
 # Neo4j write layer (skips when Neo4j isn't reachable)
 # ---------------------------------------------------------------------------
 

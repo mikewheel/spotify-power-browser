@@ -33,6 +33,8 @@ def _ambiguity_key(cluster):
 def _cluster_section(cluster):
     methods = sorted({m.method for m in cluster.members})
     flags = []
+    if cluster.split_derived:
+        flags.append("manual split")
     if cluster.heuristic_only:
         flags.append("heuristic-only")
     if cluster.duration_spread_ms > AMBIGUOUS_SPREAD_MS:
@@ -97,6 +99,20 @@ def render_review_report(result, now=None):
             lines += _cluster_section(cluster)
     else:
         lines += ["_No multi-version clusters were formed this run._", ""]
+
+    # Split-derived Songs are usually singletons (which get no cluster section
+    # of their own), so list every one here — the reviewer can confirm the
+    # override actually took effect (and spot the ':split:'-suffixed ids the
+    # shared-ISRC case produces).
+    split_clusters = [c for c in result.clusters if c.split_derived]
+    if split_clusters:
+        lines += ["## Manual splits", ""]
+        lines += [
+            f"- `{c.song_id}` — {c.title} "
+            f"({', '.join(f'`{m.track_id}`' for m in c.members)})"
+            for c in split_clusters
+        ]
+        lines.append("")
 
     if result.remix_edges:
         lines += ["## Remix edges", ""]

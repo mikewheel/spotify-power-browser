@@ -25,7 +25,11 @@ The ladder, strongest evidence first:
 
 Song.id is platform-neutral (plan 07 compatibility): the ISRC when the cluster
 has exactly one distinct ISRC, else 'song:' + sha1 of the sorted member
-ISRCs/track-ids. Never a bare Spotify id.
+ISRCs/track-ids. Never a bare Spotify id. Song ids are UNIQUE across the
+result: a manually-split cluster whose natural id collides with another
+cluster's (tracks sharing one ISRC — exactly the case a split override
+exists for) gets a deterministic ':split:' + sha1(member track ids) suffix,
+so the graph MERGE can never silently re-unite what the override tore apart.
 
 Stances (documented per the plan's open questions):
 - Re-recordings ("Taylor's Version") differ in ISRC and usually duration, so
@@ -70,6 +74,7 @@ class SongCluster:
     members: tuple
     heuristic_only: bool      # >1 member and nothing stronger than heuristics
     duration_spread_ms: int   # max - min member duration (0 when unknown)
+    split_derived: bool = False   # torn out by a manual split override
 
 
 @dataclass(frozen=True)
@@ -222,7 +227,9 @@ def cluster_tracks(records, overrides=None):
     clusters_by_root = defaultdict(list)
     for tid in by_id:
         clusters_by_root[uf.find(tid)].append(tid)
-    groups = [sorted(g) for g in clusters_by_root.values()]
+    # Each group carries a split_derived flag so split clusters can be marked
+    # (and their song ids de-collided) downstream.
+    groups = [(sorted(g), False) for g in clusters_by_root.values()]
 
     # Splits tear their tracks out into a Song of their own (group stays whole).
     for split_group in overrides.splits:
@@ -232,18 +239,16 @@ def cluster_tracks(records, overrides=None):
         if not known:
             continue
         known_set = set(known)
-        groups = [[t for t in g if t not in known_set] for g in groups]
-        groups.append(known)
+        groups = [([t for t in g if t not in known_set], split) for g, split in groups]
+        groups.append((known, True))
         manual_ids.update(known)
     # Deterministic regardless of input order: sort groups by first member.
-    groups = sorted([g for g in groups if g], key=lambda g: g[0])
+    groups = sorted([(g, split) for g, split in groups if g], key=lambda pair: pair[0][0])
 
     # --- Build SongClusters ------------------------------------------------
-    clusters = []
-    parent_lookup = {}   # (primary_artist_id, base normalized text) -> song_id
-    remix_members = []   # (song_id, primary_artist_id, base_text)
+    prelim = []   # (group, members, natural song_id, split_derived)
 
-    for group in groups:
+    for group, split_derived in groups:
         group_records = [by_id[t] for t in group]
         isrc_counts = Counter(r["isrc"] for r in group_records if r.get("isrc"))
         linked_in_group = {
@@ -296,7 +301,41 @@ def cluster_tracks(records, overrides=None):
             ))
 
         members = tuple(sorted(members, key=lambda m: m.track_id))
-        song_id = compute_song_id(members)
+        prelim.append((group, members, compute_song_id(members), split_derived))
+
+    # A split must actually split: when a manually-split cluster's natural id
+    # collides with another cluster's (tracks sharing one ISRC — exactly the
+    # case a split override exists for), suffix it with a stable hash of its
+    # member track ids. Distinct ids across clusters, deterministically, or
+    # the graph MERGE would silently re-unite what the override tore apart.
+    id_counts = Counter(song_id for _, _, song_id, _ in prelim)
+    resolved = []
+    for group, members, song_id, split_derived in prelim:
+        if split_derived and id_counts[song_id] > 1:
+            member_hash = sha1("|".join(m.track_id for m in members).encode("utf-8")).hexdigest()
+            unique_id = f"{song_id}:split:{member_hash}"
+            result.warnings.append(
+                f"Split cluster {group} shares its natural song id {song_id!r} with "
+                f"another cluster (shared ISRC); assigned distinct id {unique_id!r}."
+            )
+            song_id = unique_id
+        resolved.append((group, members, song_id, split_derived))
+
+    # Fail loudly rather than corrupt silently: duplicate ids past this point
+    # would MERGE distinct clusters onto one (:Song). Unreachable by
+    # construction (the ISRC tier unions everything sharing an ISRC, and split
+    # collisions were just suffixed), so any hit here is a logic bug.
+    remaining_dupes = sorted(
+        i for i, n in Counter(s for _, _, s, _ in resolved).items() if n > 1
+    )
+    if remaining_dupes:
+        raise ValueError(f"Duplicate song ids across clusters: {remaining_dupes}")
+
+    clusters = []
+    parent_lookup = {}   # (primary_artist_id, base normalized text) -> song_id
+    remix_members = []   # (song_id, primary_artist_id, base_text)
+
+    for group, members, song_id, split_derived in resolved:
         # Least-decorated display title: shortest original name, ties lexical.
         title = min((m.name or "" for m in members), key=lambda n: (len(n), n))
         durations = [m.duration_ms for m in members if m.duration_ms is not None]
@@ -309,6 +348,7 @@ def cluster_tracks(records, overrides=None):
             members=members,
             heuristic_only=heuristic_only,
             duration_spread_ms=spread,
+            split_derived=split_derived,
         ))
 
         for tid in group:

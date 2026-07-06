@@ -222,6 +222,61 @@ def test_split_override_tears_tracks_out():
     assert member_of(result, "t2").method == "manual"
 
 
+def test_split_override_on_shared_isrc_pair_yields_distinct_song_ids():
+    # The mock's deluxe pair shape (trk000052/53): the label reused the ISRC.
+    # A wrongly-reused ISRC is exactly when a human reaches for a split
+    # override, so the two resulting Songs MUST have distinct ids — otherwise
+    # the graph MERGE silently re-unites what the override tore apart.
+    records = [
+        rec("t1", "Neon Skyline", isrc="SHARED"),
+        rec("t2", "Neon Skyline - Deluxe Edition", isrc="SHARED", duration_ms=290000),
+    ]
+    result = cluster_tracks(records, overrides=Overrides(splits=[["t2"]]))
+    assert len(result.clusters) == 2
+
+    kept = cluster_of(result, "t1")
+    torn = cluster_of(result, "t2")
+    assert kept.song_id != torn.song_id
+    assert kept.song_id == "SHARED"  # the natural cluster keeps the ISRC id
+    assert torn.song_id.startswith("SHARED:split:")
+    assert torn.split_derived and not kept.split_derived
+    assert member_of(result, "t2").method == "manual"
+    # The rename is surfaced, not silent.
+    assert any("split" in w.lower() for w in result.warnings)
+
+    # Deterministic: same input in any order yields the same ids.
+    again = cluster_tracks(list(reversed(records)), overrides=Overrides(splits=[["t2"]]))
+    assert sorted(c.song_id for c in again.clusters) == \
+           sorted(c.song_id for c in result.clusters)
+
+
+def test_split_override_without_id_collision_keeps_natural_ids():
+    result = cluster_tracks(
+        [
+            rec("t1", "Same Title", isrc="ISRC1", duration_ms=200000),
+            rec("t2", "Same Title", isrc="ISRC2", duration_ms=200500),
+        ],
+        overrides=Overrides(splits=[["t2"]]),
+    )
+    # Distinct ISRCs: no collision, so both Songs keep their natural ISRC ids.
+    assert {c.song_id for c in result.clusters} == {"ISRC1", "ISRC2"}
+    assert cluster_of(result, "t2").split_derived
+
+
+def test_two_shared_isrc_splits_get_distinct_ids():
+    result = cluster_tracks(
+        [
+            rec("t1", "Triplet", isrc="SHARED"),
+            rec("t2", "Triplet", isrc="SHARED"),
+            rec("t3", "Triplet", isrc="SHARED"),
+        ],
+        overrides=Overrides(splits=[["t2"], ["t3"]]),
+    )
+    ids = [c.song_id for c in result.clusters]
+    assert len(ids) == 3
+    assert len(set(ids)) == 3
+
+
 def test_override_with_unknown_ids_warns_and_continues():
     result = cluster_tracks(
         [rec("t1", "A Song", isrc="ISRC1")],

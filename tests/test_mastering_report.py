@@ -1,6 +1,7 @@
 """Tests for the mastering review report (plan 03 T6) — pure rendering,
 no services."""
 from application.mastering.cluster import cluster_tracks
+from application.mastering.overrides import Overrides
 from application.mastering.report import render_review_report, write_review_report
 from application.mastering.run import overrides_path_from_env
 
@@ -65,6 +66,22 @@ def test_report_includes_warnings():
     result.warnings.append("Track tX links from ghost, which is not in the graph; ignored.")
     report = render_review_report(result)
     assert "## Warnings" in report and "ghost" in report
+
+
+def test_report_marks_split_derived_songs():
+    # A split-derived Song (here the shared-ISRC case, where the id also gets
+    # a :split: suffix) must be visible in the report even as a singleton.
+    result = cluster_tracks(
+        [
+            rec("t1", "Neon Skyline", isrc="SHARED"),
+            rec("t2", "Neon Skyline - Deluxe Edition", isrc="SHARED"),
+        ],
+        overrides=Overrides(splits=[["t2"]]),
+    )
+    report = render_review_report(result)
+    assert "## Manual splits" in report
+    assert "SHARED:split:" in report
+    assert "`t2`" in report
 
 
 def test_write_review_report_writes_the_file(tmp_path):
