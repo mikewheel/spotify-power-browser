@@ -9,3 +9,8 @@ REQUIRE artist.id IS UNIQUE;
 CREATE CONSTRAINT track_id_uniqueness IF NOT EXISTS
 FOR (track:Track)
 REQUIRE track.id IS UNIQUE;
+
+// --- Entity mastering (plan 03): canonical Song masters ---
+CREATE CONSTRAINT song_id_uniqueness IF NOT EXISTS
+FOR (song:Song)
+REQUIRE song.id IS UNIQUE;

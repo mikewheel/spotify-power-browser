@@ -1,0 +1,22 @@
+# Manual entity-mastering overrides (plan 03) — forced merges and splits that
+# beat every heuristic. Copy this file to secrets/mastering_overrides.yaml (or
+# point the MASTERING_OVERRIDES_PATH env var anywhere) and rerun
+# `python -m application.mastering.run`; overrides are applied LAST, so they
+# always win. The review report (data/mastering_review.md) is where you find
+# the track ids to put here.
+
+# merge: each entry forces every listed Spotify track id into ONE Song,
+# regardless of ISRC/title/duration evidence. Members get
+# VERSION_OF {method: 'manual', confidence: 1.0}.
+merge:
+  - tracks: [4uLU6hMCjMI75M1A2tKUQC, 7GhIk7Il098yCjg4BQjzvb]
+    reason: "same recording, label re-registered the ISRC on the reissue"
+  # Bare lists work too:
+  # - [4uLU6hMCjMI75M1A2tKUQC, 7GhIk7Il098yCjg4BQjzvb]
+
+# split: each entry tears the listed track ids OUT of whatever cluster the
+# heuristics put them in, into a Song of their own. The listed group stays
+# together (a one-id list means "this track stands alone").
+split:
+  - tracks: [2takcwOaAZWiXQijPHIx7B]
+    reason: "same title + duration as the album cut, but it's a re-recording"

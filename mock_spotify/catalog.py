@@ -25,6 +25,46 @@ def _n(prefix, identifier):
     return int(suffix) if suffix.isdigit() else None
 
 
+def _isrc(i):
+    """Deterministic ISRC for track i (CC-XXX-YY-NNNNN, mock registrant MCK)."""
+    return f"USMCK26{i:05d}"
+
+
+# ---------------------------------------------------------------------------
+# Entity-mastering variant cases (plan 03). Fixed track indices near the top of
+# the default catalog (requires MOCK_N_TRACKS >= 59, default 60) whose fields
+# deviate from the generated pattern so tests can exercise the identity ladder:
+#
+#   52/53  deluxe re-release pair -- two track ids SHARING one ISRC (labels
+#          reuse the ISRC when a deluxe edition re-ships the same recording)
+#   54/55  explicit/clean twins   -- different ISRCs, same title + primary
+#          artist, durations within +/-3s (heuristic-tier merge)
+#   56/57  remaster + original    -- different ISRCs; 56 carries the
+#          " - 2011 Remaster" suffix normalize() must strip (kind: remaster)
+#   58     "(Nightcrawler Remix)" -- a remix of 56/57's song that must NOT
+#          merge with it (remix credits are never stripped); duration is
+#          deliberately within tolerance to tempt a naive matcher
+#
+# All variants share primary artist 3 so the heuristic blocking key
+# (primary_artist_id, normalized-title prefix) actually groups them.
+# ---------------------------------------------------------------------------
+VARIANTS = {
+    52: {"name": "Neon Skyline", "isrc": _isrc(52), "artist_i": 3},
+    53: {"name": "Neon Skyline", "isrc": _isrc(52), "artist_i": 3},
+    54: {"name": "Gutter Anthem", "explicit": True, "artist_i": 3, "duration_ms": 201000},
+    55: {"name": "Gutter Anthem", "explicit": False, "artist_i": 3, "duration_ms": 200000},
+    56: {"name": "Cathedral Bells - 2011 Remaster", "artist_i": 3, "duration_ms": 184000},
+    57: {"name": "Cathedral Bells", "artist_i": 3, "duration_ms": 183000},
+    58: {"name": "Cathedral Bells (Nightcrawler Remix)", "artist_i": 3, "duration_ms": 184500},
+}
+
+# Convenience ids for tests (hit these via GET /v1/tracks?ids=...).
+DELUXE_PAIR_IDS = ("trk000052", "trk000053")
+CLEAN_EXPLICIT_TWIN_IDS = ("trk000054", "trk000055")
+REMASTER_PAIR_IDS = ("trk000056", "trk000057")
+REMIX_TRACK_ID = "trk000058"
+
+
 def artist(i):
     aid = f"art{i % N_ARTISTS:06d}"
     return {
@@ -60,19 +100,22 @@ def album(i):
 
 def track(i):
     tid = f"trk{i:06d}"
+    v = VARIANTS.get(i, {})
     return {
         "uri": f"spotify:track:{tid}",
         "id": tid,
-        "name": f"Track {i}",
-        "explicit": False,
+        "name": v.get("name", f"Track {i}"),
+        "explicit": v.get("explicit", False),
         "is_local": False,
-        "duration_ms": 200000,
+        "duration_ms": v.get("duration_ms", 200000),
         "popularity": 50,
         "type": "track",
         "href": f"{PUBLIC_BASE_URL}/v1/tracks/{tid}",
         "external_urls": {"spotify": f"https://open.spotify.com/track/{tid}"},
+        "external_ids": {"isrc": v.get("isrc", _isrc(i))},
         "album": album(i),          # track i lives on album (i % N_ALBUMS)
-        "artists": [artist(i)],     # plus its own performing artist
+        # The performing artist (variants pin a shared primary artist).
+        "artists": [artist(v.get("artist_i", i))],
     }
 
 
