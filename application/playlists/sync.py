@@ -131,14 +131,34 @@ class SpotifyPlaylistClient:
         ).json()
 
     def get_playlist_track_ids(self, playlist_id):
-        """All current track ids, in playlist order, following pagination."""
-        track_ids, url = [], f"/v1/playlists/{playlist_id}/tracks"
+        """All current track ids, in playlist order, following pagination.
+
+        Items whose track object exists but has a null id (local files added
+        from the desktop client) are dropped: they have no spotify:track: URI,
+        so the API cannot address them, and letting None into the list would
+        later send the malformed URI 'spotify:track:None' in a remove body
+        (HTTP 400, wedging every subsequent sync). Decision: they are skipped
+        from the diff entirely — the sync neither counts them as current
+        content nor attempts to remove them — and their count is logged once.
+        """
+        track_ids, dropped_null_ids = [], 0
+        url = f"/v1/playlists/{playlist_id}/tracks"
         while url:
             page = self._request("GET", url).json()
-            track_ids += [
-                item["track"]["id"] for item in page["items"] if item.get("track")
-            ]
+            for item in page["items"]:
+                track = item.get("track")
+                if not track:
+                    continue  # removed-from-catalog item: whole track is null
+                if track.get("id") is None:
+                    dropped_null_ids += 1
+                    continue
+                track_ids.append(track["id"])
             url = page.get("next")
+        if dropped_null_ids:
+            logger.warning(
+                f"Playlist {playlist_id}: dropped {dropped_null_ids} item(s) with no track id "
+                f"(local files) - the API cannot address them, so the sync leaves them in place."
+            )
         return track_ids
 
     def add_tracks(self, playlist_id, track_ids):

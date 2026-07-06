@@ -317,6 +317,61 @@ def test_sync_with_adds_also_corrects_duplicates_without_false_warning(client, m
     assert not any("unplayable" in record.message for record in sync_log.records)
 
 
+def test_get_playlist_track_ids_drops_local_file_items(sync_log):
+    # Local files added from the desktop client come back with a track OBJECT
+    # present but "id": null (unlike deleted/unavailable items, where the
+    # whole track is null). A None in current would later be scheduled for
+    # removal as the malformed URI 'spotify:track:None' -> HTTP 400 on every
+    # subsequent sync. Null-id items must be dropped (and counted) instead.
+    pages = {
+        "/v1/playlists/pl000001/tracks": {
+            "items": [
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000001", "type": "track"}},
+                {"added_at": "2026-01-01T00:00:00Z", "is_local": True,
+                 "track": {"id": None, "uri": "spotify:local:Artist:Album:Song:210",
+                           "name": "Song", "type": "track", "is_local": True}},
+                {"added_at": "2026-01-01T00:00:00Z", "track": None},  # removed-from-catalog item
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000002", "type": "track"}},
+            ],
+            "next": "http://mock.invalid/page2",
+        },
+        "http://mock.invalid/page2": {
+            "items": [
+                {"added_at": "2026-01-01T00:00:00Z", "is_local": True,
+                 "track": {"id": None, "uri": "spotify:local:Artist:Album:Other:180",
+                           "name": "Other", "type": "track", "is_local": True}},
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000003", "type": "track"}},
+            ],
+            "next": None,
+        },
+    }
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    client = SpotifyPlaylistClient(base_url="http://mock.invalid", token="t")
+    client._request = lambda method, path_or_url, **kwargs: _FakeResponse(
+        pages[path_or_url if path_or_url.startswith("http") else path_or_url]
+    )
+
+    track_ids = client.get_playlist_track_ids("pl000001")
+    assert track_ids == ["trk000001", "trk000002", "trk000003"]
+    assert None not in track_ids
+
+    # ...so no None can ever reach a remove/add body via the diff.
+    diff = compute_diff(track_ids, ["trk000001"], order_significant=True)
+    assert None not in diff.removes and None not in diff.adds
+
+    # Logged once per fetch, with the count of dropped items across all pages.
+    local_file_warnings = [r for r in sync_log.records if "no track id" in r.message]
+    assert len(local_file_warnings) == 1
+    assert "2" in local_file_warnings[0].message
+
+
 def test_401_refreshes_and_retries_once(mock_url):
     refreshed = []
     client = SpotifyPlaylistClient(
