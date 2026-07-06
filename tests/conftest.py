@@ -11,8 +11,11 @@ from types import SimpleNamespace
 import pytest
 
 
-def _artist(i):
-    return {
+def _artist(i, popularity=None, followers=None):
+    """popularity/followers: None -> deterministic defaults; "" -> omit the
+    field entirely (a simplified artist object, e.g. a track credit, carries
+    neither -- plan 01 discovery relies on coalesce keeping stored values)."""
+    artist = {
         "uri": f"spotify:artist:{i}",
         "id": f"art{i}",
         "name": f"Artist {i}",
@@ -21,6 +24,11 @@ def _artist(i):
         "type": "artist",
         "genres": [],
     }
+    if popularity != "":
+        artist["popularity"] = 50 if popularity is None else popularity
+    if followers != "":
+        artist["followers"] = {"href": None, "total": 1000 if followers is None else followers}
+    return artist
 
 
 def _album(i, artists=None):
