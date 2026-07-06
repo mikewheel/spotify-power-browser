@@ -83,13 +83,28 @@ class BatchResource:
 
 class TokenResource:
     def on_post(self, req, resp):
+        # Fidelity: Spotify's token endpoint rejects clients that don't
+        # authenticate (HTTP Basic). The permissive version of this mock let a
+        # missing-client-auth bug in refresh_spotify_auth() ship undetected.
+        if not (req.auth or "").startswith("Basic "):
+            resp.status = falcon.HTTP_400
+            resp.media = {
+                "error": "invalid_client",
+                "error_description": "client authentication required",
+            }
+            return
+
+        form = req.get_media() if req.content_length else {}
         resp.media = {
             "access_token": "mock-access-token",
             "token_type": "Bearer",
             "scope": "user-library-read",
             "expires_in": 3600,
-            "refresh_token": "mock-refresh-token",
         }
+        # Spotify includes a refresh_token on the initial code exchange but
+        # commonly omits it when the grant is itself a refresh.
+        if form.get("grant_type") != "refresh_token":
+            resp.media["refresh_token"] = "mock-refresh-token"
 
 
 class AuthorizeResource:
