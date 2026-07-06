@@ -13,6 +13,22 @@ ON CREATE SET
     al.spotify_url = album.external_urls.spotify,
     al.type = album.type,
     al.href = album.href
+// A stub Album {uri, id, crawl_source} can pre-exist this insert: the
+// tracks-page handler (insert_tracks_of_album_page.cypher) MERGEs one to
+// tolerate out-of-order queue consumption, and an auto-ack'd batch write can
+// be lost outright while the crawled-URL dedup set blocks any refetch of the
+// /v1/albums?ids= URL. Upgrade it here with the chain's established
+// coalesce(payload, existing) ON MATCH pattern so a later full payload always
+// lands; a payload that lacks a field never erases a stored value.
+ON MATCH SET
+    al.name = coalesce(album.name, al.name),
+    al.release_date = coalesce(album.release_date, al.release_date),
+    al.release_date_precision = coalesce(album.release_date_precision, al.release_date_precision),
+    al.total_tracks = coalesce(album.total_tracks, al.total_tracks),
+    al.album_type = coalesce(album.album_type, al.album_type),
+    al.spotify_url = coalesce(album.external_urls.spotify, al.spotify_url),
+    al.type = coalesce(album.type, al.type),
+    al.href = coalesce(album.href, al.href)
 
 // Skip tracks because it's paginated
 

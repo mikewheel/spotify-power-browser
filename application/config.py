@@ -64,6 +64,26 @@ USE_BATCH_ENDPOINTS = _env_bool('USE_BATCH_ENDPOINTS', False)
 RESET_CRAWL = _env_bool('RESET_CRAWL', False)
 
 ###
+# Adjacent-artist discovery (plan 01) — an explicitly-gated second crawl kind,
+# NOT a blanket DEPTH_OF_SEARCH bump.
+###
+# Seed a discography crawl (GET /v1/artists/{id}/albums) for every artist with
+# at least ARTIST_AFFINITY_MIN liked tracks, harvest the collab frontier from
+# the albums' track credits, and enrich it with popularity/followers. Off by
+# default: this crawl grows the graph beyond your library, so it's opt-in per
+# run (CRAWL_ARTIST_DISCOGRAPHIES=true docker compose up). Also gates the
+# discography-only write/follow behavior on batch-album responses (embedded
+# track persistence + frontier artist sweep) so default runs are unchanged.
+CRAWL_ARTIST_DISCOGRAPHIES = _env_bool('CRAWL_ARTIST_DISCOGRAPHIES', False)
+
+# Minimum liked-track count for an artist to qualify for a discography crawl.
+# Default 3 per the plan, pending the T1 live measurement (run the
+# affinity-distribution query in
+# graph_database/queries/discovery/adjacent_artist_discovery.cypher and adjust).
+# Raise it (e.g. ARTIST_AFFINITY_MIN=10) for a small first run.
+ARTIST_AFFINITY_MIN = int(os.environ.get('ARTIST_AFFINITY_MIN', '3'))
+
+###
 # Spotify endpoints — override to point the crawler at a local mock service.
 # (A mock must emit self-referential hrefs/next using its own base URL, since
 # the engine follows the absolute URLs in responses.)
