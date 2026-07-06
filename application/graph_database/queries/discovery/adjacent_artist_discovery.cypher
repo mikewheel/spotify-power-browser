@@ -8,12 +8,12 @@
 //
 // Multiplayer (plan 06 T2): "my taste" is the $user_id parameter traversing
 // (:User)-[:LIKED] (requires migration 0001). Every query below takes
-// $user_id; null means "any user" — identical to the pre-06 behavior on a
+// $user_id, where null means "any user" — identical to the pre-06 behavior on a
 // single-user graph.
 //
 // Frontier provenance: nodes the discography crawl created carry
-// crawl_source = 'discography'; liked tracks are the targets of [:LIKED]
-// edges; frontier artists have crawl_source and no inbound taste edges.
+// crawl_source = 'discography' — liked tracks are the targets of [:LIKED]
+// edges, and frontier artists have crawl_source and no inbound taste edges.
 
 
 // ---------------------------------------------------------------------------

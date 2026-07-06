@@ -13,7 +13,7 @@
 //
 // Multiplayer (plan 06 T2): 1a/1b take $user_id and traverse
 // (:User)-[:LIKED] (migration 0001) — null = "any user". 2a/2b were already
-// forward-written against (:User) with the $me param (plan 02's naming);
+// forward-written against (:User) with the $me param (plan 02's naming) —
 // both conventions resolve to the same (:User {id}) anchor.
 
 

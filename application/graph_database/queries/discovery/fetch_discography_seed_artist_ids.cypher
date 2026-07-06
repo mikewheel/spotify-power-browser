@@ -6,7 +6,7 @@
 //
 // Multiplayer (plan 06 T2): "liked" is the (:User)-[:LIKED] relationship
 // (requires migration 0001). $user_id scopes the seed list to one user's
-// taste; null means "any user" — identical to the old behavior on a
+// taste — null means "any user", identical to the old behavior on a
 // single-user graph, and the union of everyone's taste on a shared one.
 MATCH (u:User)-[:LIKED]->(t:Track)<-[:CREATED]-(ar:Artist)
 WHERE ($user_id IS NULL OR u.id = $user_id)
