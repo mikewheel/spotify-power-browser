@@ -15,7 +15,14 @@ unknown -> included, flagged through the popularity_unknown column; the CLI
 logs how many artists that affected.
 
 Future generators as their plans land (time-capsule <year> — plan 09,
-blend <user_a> <user_b> — plan 06) register in build_generator below.
+blend <user_a> <user_b> — plan 06's bridge query already exists at
+graph_database/queries/overlap/bridge_playlist.cypher) register in
+build_generator below.
+
+Multiplayer (plan 06): every generator takes user_id (CLI --user). None keeps
+the legacy any-user behavior AND the legacy identity_params hash, so managed
+playlists created before multiplayer keep resolving; a user scope forks a
+per-user managed playlist (see _user_identity).
 """
 from dataclasses import dataclass, field
 

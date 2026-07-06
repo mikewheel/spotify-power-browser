@@ -310,14 +310,15 @@ def test_discography_crawl_enriches_frontier_without_recursion(crawl):
         pack = [q.strip() for q in f.read().split(";") if q.strip()]
     affinity_query, track_altitude_query = pack[0], pack[1]
 
+    # user_id=None -> 'any user' (plan 06 rewrite of the pack)
     recs, _, _ = crawl.graph.execute_query(
-        track_altitude_query, max_popularity=40, min_bridges=2)
+        track_altitude_query, max_popularity=40, min_bridges=2, user_id=None)
     frontier_rows = [r for r in recs if r["artist"].startswith("Frontier Collaborator")]
     assert frontier_rows, "the ranked frontier must surface the mock's collaborators"
     assert all(r["bridges"] >= 2 and r["popularity"] <= 40 for r in frontier_rows)
     assert all(r["via"] for r in frontier_rows)  # explainability: bridged via whom
 
-    recs, _, _ = crawl.graph.execute_query(affinity_query)
+    recs, _, _ = crawl.graph.execute_query(affinity_query, user_id=None)
     counts = [r["qualifying_artists"] for r in recs]
     assert len(counts) == 20 and counts == sorted(counts, reverse=True)
 
