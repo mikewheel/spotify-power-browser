@@ -3,9 +3,10 @@ Neo4j — the neo4j_driver fixture skips the module when the database isn't
 reachable. Distinctive CYTESTANN uris/ids keep cleanup surgical."""
 import pytest
 
-from application.annotations.model import Neo4jAnnotationWriter
+from application.annotations.model import Neo4jAnnotationWriter, TrackNotInGraphError
 
 TRACK_ID = "CYTESTANN1"
+MISSING_TRACK_ID = "CYTESTANN_NOT_CRAWLED"
 
 
 @pytest.fixture(autouse=True)
@@ -96,6 +97,34 @@ def test_undo_section_reopens_previous_end(writer):
     sections = writer.fetch_annotations(TRACK_ID)["sections"]
     assert len(sections) == 1
     assert sections[0]["end_ms"] is None  # reopened: runs to track end again
+
+
+def test_writes_against_a_track_missing_from_the_graph_raise(writer, neo4j_driver):
+    """The insert Cypher MATCHes the Track (no MERGE, no placeholders): when
+    the track isn't in the graph the query is a silent no-op at the database
+    level, so the writer MUST turn the zero-match into a loud error instead of
+    reporting success (a whole live-listening session was silently lost)."""
+    with pytest.raises(TrackNotInGraphError):
+        writer.add_note(MISSING_TRACK_ID, "lost thought", at_ms=130000)
+    with pytest.raises(TrackNotInGraphError):
+        writer.add_cue(MISSING_TRACK_ID, 41000, "the drop")
+    with pytest.raises(TrackNotInGraphError):
+        writer.add_section(MISSING_TRACK_ID, 0, 0, "intro")
+    # no placeholder Track and no orphan annotation nodes were created
+    records, _, _ = neo4j_driver.execute_query(
+        "MATCH (t:Track {id: $track_id}) RETURN count(t) AS tracks", track_id=MISSING_TRACK_ID
+    )
+    assert records[0]["tracks"] == 0
+    records, _, _ = neo4j_driver.execute_query(
+        "MATCH (a) WHERE (a:Note OR a:Cue OR a:Section) AND NOT (a)<-[]-(:Track) "
+        "RETURN count(a) AS orphans"
+    )
+    assert records[0]["orphans"] == 0
+
+
+def test_track_in_graph_probe(writer):
+    assert writer.track_in_graph(TRACK_ID) is True
+    assert writer.track_in_graph(MISSING_TRACK_ID) is False
 
 
 def test_nudge_cue_moves_at_ms(writer):

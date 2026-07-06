@@ -95,6 +95,7 @@ def test_insert_queries_only_touch_built_params(query, param_name, builder_keys)
     (model.DELETE_SECTION_QUERY, {"$section_id"}),
     (model.NUDGE_ANNOTATION_QUERY, {"$annotation_id", "$at_ms"}),
     (model.NEXT_SECTION_ORDER_QUERY, {"$track_id"}),
+    (model.TRACK_EXISTS_QUERY, {"$track_id"}),
 ])
 def test_parameterized_queries_use_exactly_the_params_the_writer_passes(query, expected_params):
     assert set(re.findall(r"\$\w+", query)) == expected_params

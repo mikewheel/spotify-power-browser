@@ -33,7 +33,11 @@ from collections import Counter
 
 import requests
 
-from application.annotations.model import Neo4jAnnotationWriter
+from application.annotations.model import (
+    AnnotationWriteError,
+    Neo4jAnnotationWriter,
+    TrackNotInGraphError,
+)
 from application.annotations.timecode import format_ms
 from application.config import SECRETS_DIR, SPOTIFY_API_BASE_URL
 from application.loggers import get_logger
@@ -57,7 +61,11 @@ class PlaybackTracker:
     fetch_playback() -> the /v1/me/player payload dict ({is_playing,
         progress_ms, item: <track object>}) or None (no active device).
     writer -> the annotation writer protocol (Neo4jAnnotationWriter or a fake):
-        add_note / add_cue / add_section / undo / nudge / next_section_order.
+        add_note / add_cue / add_section / undo / nudge / next_section_order /
+        track_in_graph. The add_* calls raise AnnotationWriteError when the
+        write persisted nothing (e.g. the track isn't in the graph) — the
+        tracker surfaces those as explicit capture FAILURES instead of
+        silently pretending success.
     prompt(message) -> str: blocking text entry (the TTY layer drops out of raw
         mode for it; tests inject a stub).
     clock() -> float seconds (monotonic): drives between-poll position
@@ -77,6 +85,10 @@ class PlaybackTracker:
 
         self.undo_stack = []
         self.session = []  # surviving records, for the exit summary
+        self.failures = []  # captures that did NOT persist, for the exit summary
+        self.notices = []  # one-shot warnings for the TTY layer to print
+        # True/False once probed; None = unknown (writer without the probe).
+        self.current_track_in_graph = None
         self._next_orders = {}  # track_id -> next section order (seeded from the graph)
         self.quit_requested = False
 
@@ -91,11 +103,34 @@ class PlaybackTracker:
             self._progress_ms = 0
             self._polled_at = None
             return None
+        changed = self.track is None or self.track["id"] != state["item"]["id"]
         self.track = state["item"]
         self.is_playing = bool(state.get("is_playing"))
         self._progress_ms = int(state.get("progress_ms") or 0)
         self._polled_at = self.clock()
+        if changed:
+            self._refresh_graph_membership()
         return state
+
+    def _refresh_graph_membership(self):
+        """On track change: warn up front when the playing track isn't in the
+        graph — captures against it cannot persist (the insert Cypher MATCHes
+        the Track and must never create placeholders)."""
+        probe = getattr(self.writer, "track_in_graph", None)
+        if probe is None:
+            self.current_track_in_graph = None
+            return
+        self.current_track_in_graph = bool(probe(self.track["id"]))
+        if not self.current_track_in_graph:
+            self.notices.append(
+                f'{self.track.get("name", self.track["id"])!r} is NOT in the graph - '
+                f"captures will FAIL until it is crawled"
+            )
+
+    def drain_notices(self):
+        """Hand pending one-shot warnings to the TTY layer (clears them)."""
+        notices, self.notices = self.notices, []
+        return notices
 
     def position_ms(self):
         """Estimated position: last polled progress plus wall-clock elapsed
@@ -134,18 +169,42 @@ class PlaybackTracker:
     def _record(self, record):
         self.undo_stack.append(record)
         self.session.append(record)
+        # A successful write proves the track is in the graph (it may have
+        # been crawled since the last membership probe).
+        self.current_track_in_graph = True
         return record
+
+    def _fail(self, capture_type, at_ms, body, exc):
+        """An explicit, visible capture failure: nothing was written. Recorded
+        for the session summary (with the typed text/label, so it isn't lost)
+        but NEVER on the undo stack."""
+        self.failures.append({
+            "type": capture_type,
+            "track_id": self.track["id"],
+            "at_ms": at_ms,
+            "body": body,
+            "error": str(exc),
+        })
+        if isinstance(exc, TrackNotInGraphError):
+            self.current_track_in_graph = False
+        return f"!! FAILED {capture_type} @ {format_ms(at_ms)}: {body} - NOT saved ({exc})"
 
     def _add_note(self, at_ms):
         text = (self.prompt("note> ") or "").strip()
         if not text:
             return "empty - discarded"
-        self._record(self.writer.add_note(self.track["id"], text, at_ms=at_ms))
+        try:
+            self._record(self.writer.add_note(self.track["id"], text, at_ms=at_ms))
+        except AnnotationWriteError as exc:
+            return self._fail("note", at_ms, text, exc)
         return f'note @ {format_ms(at_ms)}: {text}'
 
     def _add_cue(self, at_ms):
         label = (self.prompt("cue label> ") or "").strip() or "cue"
-        self._record(self.writer.add_cue(self.track["id"], at_ms, label))
+        try:
+            self._record(self.writer.add_cue(self.track["id"], at_ms, label))
+        except AnnotationWriteError as exc:
+            return self._fail("cue", at_ms, label, exc)
         return f'cue @ {format_ms(at_ms)}: {label}'
 
     def _add_section(self, at_ms):
@@ -154,7 +213,12 @@ class PlaybackTracker:
             return "empty - discarded"
         track_id = self.track["id"]
         order = self._claim_section_order(track_id)
-        record = self._record(self.writer.add_section(track_id, order, at_ms, label))
+        try:
+            record = self._record(self.writer.add_section(track_id, order, at_ms, label))
+        except AnnotationWriteError as exc:
+            # Give the unused order back so the next boundary doesn't skip a slot.
+            self._next_orders[track_id] = min(self._next_orders.get(track_id, order), order)
+            return self._fail("section", at_ms, label, exc)
         return f'section #{order} [{record["kind"]}] @ {format_ms(at_ms)}: {label}'
 
     def _claim_section_order(self, track_id):
@@ -202,10 +266,12 @@ class PlaybackTracker:
             return "-- no active playback --"
         artists = ", ".join(a.get("name", "?") for a in self.track.get("artists", []))
         state = ">" if self.is_playing else "||"
+        marker = "  [NOT IN GRAPH]" if self.current_track_in_graph is False else ""
+        failed = f", {len(self.failures)} FAILED" if self.failures else ""
         return (
-            f'{state} {artists} - {self.track["name"]}  '
+            f'{state} {artists} - {self.track["name"]}{marker}  '
             f'{format_ms(self.position_ms())}/{format_ms(self.track.get("duration_ms"))}  '
-            f'({len(self.session)} captured)'
+            f'({len(self.session)} captured{failed})'
         )
 
     def session_summary(self):
@@ -216,6 +282,8 @@ class PlaybackTracker:
             "total": len(self.session),
             "by_type": dict(Counter(record["type"] for record in self.session)),
             "by_track": by_track,
+            "failed": len(self.failures),
+            "failures": list(self.failures),
         }
 
 
@@ -268,6 +336,12 @@ def _print_summary(summary):
             position_text = f'@ {format_ms(position)}' if position is not None else ""
             body = record.get("label") or record.get("text") or ""
             print(f'    {record["type"]:<8} {position_text:<10} {body}')
+    if summary.get("failed"):
+        print(f'\n!! {summary["failed"]} capture(s) FAILED and were NOT written to the graph:')
+        for failure in summary["failures"]:
+            position_text = f'@ {format_ms(failure["at_ms"])}' if failure["at_ms"] is not None else ""
+            print(f'    {failure["type"]:<8} {position_text:<10} {failure["body"]}  '
+                  f'[{failure["track_id"]}: {failure["error"]}]')
 
 
 def main(argv=None):
@@ -314,6 +388,8 @@ def main(argv=None):
                 except requests.exceptions.ConnectionError as exc:
                     _redraw(f'!! player poll failed: {exc.__class__.__name__} (retrying)')
                 last_poll = now
+            for notice in tracker.drain_notices():
+                sys.stdout.write("\r\x1b[K!! " + notice + "\n")
             _redraw(tracker.status_line())
             readable, _, _ = select.select([sys.stdin], [], [], 0.25)
             if readable:

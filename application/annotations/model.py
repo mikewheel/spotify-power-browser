@@ -13,12 +13,27 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from application.config import APPLICATION_DIR
-from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 
 logger = get_logger(__name__)
 
 ANNOTATION_QUERIES_DIR = APPLICATION_DIR / "graph_database" / "queries" / "annotations"
+
+
+class AnnotationWriteError(Exception):
+    """A write that should have persisted an annotation didn't."""
+
+
+class TrackNotInGraphError(AnnotationWriteError):
+    """The target Track id matched nothing — the insert queries MATCH the
+    Track (never MERGE — annotations must not create placeholder Tracks), so
+    a missing track makes the whole write a silent no-op unless we raise."""
+
+    def __init__(self, track_id):
+        self.track_id = track_id
+        super().__init__(
+            f"track {track_id!r} is not in the graph - only crawled tracks are annotatable"
+        )
 
 # Section.kind vocabulary — EDM and song-form both first-class (plan 04 A).
 SECTION_KINDS = (
@@ -43,6 +58,7 @@ DELETE_ANNOTATION_QUERY = _load_query("delete_annotation")
 DELETE_SECTION_QUERY = _load_query("delete_section_and_reopen_previous")
 NUDGE_ANNOTATION_QUERY = _load_query("nudge_annotation")
 NEXT_SECTION_ORDER_QUERY = _load_query("next_section_order")
+TRACK_EXISTS_QUERY = _load_query("track_exists")
 
 
 def _now_iso():
@@ -118,9 +134,15 @@ class Neo4jAnnotationWriter:
         self.database = database
 
     def _execute(self, query, **params):
-        execute_query_against_neo4j(
-            query=query, driver=self.driver, database=self.database, **params
+        """Run a write query; returns the result counters so callers can
+        verify the write actually matched something (a MATCH that finds no
+        rows makes the whole query a no-op WITHOUT raising)."""
+        summary = self.driver.execute_query(query, database_=self.database, **params).summary
+        logger.info(
+            f"Nodes created: {summary.counters.nodes_created}, "
+            f"edges created: {summary.counters.relationships_created}"
         )
+        return summary.counters
 
     def _fetch(self, query, **params):
         records, _, _ = self.driver.execute_query(query, database_=self.database, **params)
@@ -128,17 +150,23 @@ class Neo4jAnnotationWriter:
 
     def add_note(self, track_id, text, at_ms=None):
         params = build_note_params(track_id, text, at_ms=at_ms)
-        self._execute(INSERT_NOTE_QUERY, **params)
+        counters = self._execute(INSERT_NOTE_QUERY, **params)
+        if counters.nodes_created == 0:
+            raise TrackNotInGraphError(track_id)
         return {"type": "note", **params["note"]}
 
     def add_cue(self, track_id, at_ms, label):
         params = build_cue_params(track_id, at_ms, label)
-        self._execute(INSERT_CUE_QUERY, **params)
+        counters = self._execute(INSERT_CUE_QUERY, **params)
+        if counters.nodes_created == 0:
+            raise TrackNotInGraphError(track_id)
         return {"type": "cue", **params["cue"]}
 
     def add_section(self, track_id, order, start_ms, label, kind=None, end_ms=None):
         params = build_section_params(track_id, order, start_ms, label, kind=kind, end_ms=end_ms)
-        self._execute(INSERT_SECTION_QUERY, **params)
+        counters = self._execute(INSERT_SECTION_QUERY, **params)
+        if counters.nodes_created == 0:
+            raise TrackNotInGraphError(track_id)
         return {"type": "section", **params["section"]}
 
     def undo(self, record):
@@ -154,6 +182,12 @@ class Neo4jAnnotationWriter:
     def next_section_order(self, track_id):
         rows = self._fetch(NEXT_SECTION_ORDER_QUERY, track_id=track_id)
         return rows[0]["next_order"] if rows else 0
+
+    def track_in_graph(self, track_id):
+        """True when the Track is in the graph (i.e. annotatable). `listen`
+        checks this on track change to warn BEFORE captures start failing."""
+        rows = self._fetch(TRACK_EXISTS_QUERY, track_id=track_id)
+        return bool(rows and rows[0]["present"])
 
     def search_tracks(self, search_term):
         return self._fetch(FETCH_TRACKS_BY_NAME_QUERY, search_term=search_term)

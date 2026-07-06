@@ -19,25 +19,41 @@ class FakeClock:
 
 
 class FakeWriter:
-    """Reuses the real param builders so records match production shapes."""
+    """Reuses the real param builders so records match production shapes.
 
-    def __init__(self, existing_orders=None):
+    graph_tracks mirrors the real writer's missing-track contract: None means
+    'everything is in the graph'; a set makes add_* raise TrackNotInGraphError
+    for ids outside it, exactly like Neo4jAnnotationWriter when the Track
+    MATCH finds nothing."""
+
+    def __init__(self, existing_orders=None, graph_tracks=None):
         self.records = []
         self.undone = []
         self.nudges = []
         self.existing_orders = existing_orders or {}
+        self.graph_tracks = graph_tracks
+
+    def _check_track(self, track_id):
+        if self.graph_tracks is not None and track_id not in self.graph_tracks:
+            raise model.TrackNotInGraphError(track_id)
+
+    def track_in_graph(self, track_id):
+        return self.graph_tracks is None or track_id in self.graph_tracks
 
     def add_note(self, track_id, text, at_ms=None):
+        self._check_track(track_id)
         record = {"type": "note", **model.build_note_params(track_id, text, at_ms=at_ms)["note"]}
         self.records.append(record)
         return record
 
     def add_cue(self, track_id, at_ms, label):
+        self._check_track(track_id)
         record = {"type": "cue", **model.build_cue_params(track_id, at_ms, label)["cue"]}
         self.records.append(record)
         return record
 
     def add_section(self, track_id, order, start_ms, label, kind=None, end_ms=None):
+        self._check_track(track_id)
         record = {
             "type": "section",
             **model.build_section_params(track_id, order, start_ms, label, kind=kind, end_ms=end_ms)["section"],
@@ -248,6 +264,61 @@ def test_session_summary_counts_by_type_and_track():
     assert summary["by_type"] == {"note": 1, "cue": 1, "section": 1}
     assert set(summary["by_track"]) == {"trk1", "trk2"}
     assert len(summary["by_track"]["trk1"]) == 2
+
+
+def test_poll_warns_on_track_change_when_track_not_in_graph():
+    writer = FakeWriter(graph_tracks=set())  # nothing crawled yet
+    tracker, _, _ = _tracker([_state("trk1"), _state("trk1")], writer=writer)
+    tracker.poll()
+    notices = tracker.drain_notices()
+    assert len(notices) == 1 and "NOT in the graph" in notices[0]
+    assert "[NOT IN GRAPH]" in tracker.status_line()
+    tracker.poll()  # same track: no repeat warning
+    assert tracker.drain_notices() == []
+
+
+def test_poll_stays_quiet_when_track_is_in_graph():
+    writer = FakeWriter(graph_tracks={"trk1"})
+    tracker, _, _ = _tracker([_state("trk1")], writer=writer)
+    tracker.poll()
+    assert tracker.drain_notices() == []
+    assert "[NOT IN GRAPH]" not in tracker.status_line()
+
+
+def test_capture_against_missing_track_is_an_explicit_failure():
+    writer = FakeWriter(graph_tracks=set())
+    tracker, _, _ = _tracker(
+        [_state("trk1", progress_ms=130000)],
+        writer=writer,
+        prompts=["lost thought", "the drop", "intro"],
+    )
+    tracker.poll()
+    tracker.drain_notices()
+    for key in ("n", "c", "s"):
+        feedback = tracker.handle_key(key)
+        assert "FAILED" in feedback and "NOT saved" in feedback
+    # nothing persisted, nothing undoable, nothing counted as a success
+    assert writer.records == []
+    assert tracker.undo_stack == []
+    summary = tracker.session_summary()
+    assert summary["total"] == 0
+    assert summary["failed"] == 3
+    assert [f["type"] for f in summary["failures"]] == ["note", "cue", "section"]
+    # the typed bodies survive in the summary so the session isn't lost
+    assert [f["body"] for f in summary["failures"]] == ["lost thought", "the drop", "intro"]
+    assert "3 FAILED" in tracker.status_line()
+
+
+def test_failed_section_capture_releases_its_order():
+    writer = FakeWriter(graph_tracks=set())
+    tracker, _, _ = _tracker(
+        [_state("trk1")], writer=writer, prompts=["intro", "intro again"]
+    )
+    tracker.poll()
+    assert "FAILED" in tracker.handle_key("s")  # order 0 claimed, write fails
+    writer.graph_tracks.add("trk1")  # the crawl catches up mid-session
+    tracker.handle_key("s")
+    assert writer.records[-1]["order"] == 0  # the failed claim was released
 
 
 def test_status_line_shows_track_position_and_capture_count():
