@@ -149,6 +149,36 @@ class PlayerResource:
         resp.media = state
 
 
+class ArtistAlbumsResource:
+    """GET /v1/artists/{resource_id}/albums (plan 01): the artist's
+    discography, paginated with a self-referential next link. Honors
+    include_groups (album/single/compilation filtering) like the real API."""
+
+    def on_get(self, req, resp, resource_id):
+        offset = req.get_param_as_int("offset", default=0)
+        limit = req.get_param_as_int("limit", default=20)
+        page = catalog.artist_albums_page(
+            resource_id, offset, limit, include_groups=req.get_param("include_groups")
+        )
+        if page is None:
+            raise falcon.HTTPNotFound()
+        resp.media = page
+
+
+class AlbumTracksResource:
+    """GET /v1/albums/{resource_id}/tracks (plan 01): an album's track list,
+    paginated with a self-referential next link — the route the crawler needs
+    for albums whose track list exceeds the 50 embedded in a batch response."""
+
+    def on_get(self, req, resp, resource_id):
+        offset = req.get_param_as_int("offset", default=0)
+        limit = req.get_param_as_int("limit", default=50)
+        page = catalog.album_tracks_page(resource_id, offset, limit)
+        if page is None:
+            raise falcon.HTTPNotFound()
+        resp.media = page
+
+
 def create_app():
     app = falcon.App(middleware=[FailureInjectionMiddleware()])
     app.add_route("/v1/me/tracks", LikedSongsResource())
@@ -161,6 +191,9 @@ def create_app():
     app.add_route("/_control/reset", ControlResetResource())
     app.add_route("/_control/health", HealthResource())
     app.add_route("/v1/me/player", PlayerResource())
+    # Plan 01 adjacent-artist discovery: discography sub-resources.
+    app.add_route("/v1/artists/{resource_id}/albums", ArtistAlbumsResource())
+    app.add_route("/v1/albums/{resource_id}/tracks", AlbumTracksResource())
     return app
 
 
