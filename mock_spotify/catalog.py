@@ -153,3 +153,80 @@ def liked_songs_page(offset, limit):
         "next": next_url,
         "total": N_TRACKS,
     }
+
+
+###
+# Player state (GET /v1/me/player) — plan 04 phase B live-capture testing.
+# Driven via POST /_control/config with player_* keys (app.py forwards them):
+#   {"player_track_id": "trk000003", "player_progress_ms": 41000,
+#    "player_is_playing": true, "player_advance": true}
+# With player_advance, progress advances with wall-clock time from the moment
+# of configuration — computed functionally from the elapsed time (no ticking
+# state), flowing across track boundaries like an album playing through.
+# player_track_id: null => no active device => 204.
+###
+import time  # noqa: E402  (appended section per plan 04; stdlib, safe mid-file)
+
+_PLAYER_DEFAULTS = {
+    "track_id": "trk000000",
+    "progress_ms": 0,
+    "is_playing": True,
+    "advance": False,
+}
+_PLAYER = dict(_PLAYER_DEFAULTS)
+_PLAYER["configured_at"] = time.time()
+
+_PLAYER_CONTROL_KEYS = {
+    "player_track_id": "track_id",
+    "player_progress_ms": "progress_ms",
+    "player_is_playing": "is_playing",
+    "player_advance": "advance",
+}
+
+
+def configure_player(cfg):
+    """Apply player_* keys from a /_control/config payload; ignore the rest.
+    Any accepted key re-anchors the wall-clock advance origin."""
+    touched = False
+    for control_key, state_key in _PLAYER_CONTROL_KEYS.items():
+        if control_key in cfg:
+            _PLAYER[state_key] = cfg[control_key]
+            touched = True
+    if touched:
+        _PLAYER["configured_at"] = time.time()
+    return {f"player_{k}": _PLAYER[k] for k in _PLAYER_DEFAULTS}
+
+
+def reset_player():
+    """Back to defaults (called by POST /_control/reset)."""
+    _PLAYER.update(_PLAYER_DEFAULTS)
+    _PLAYER["configured_at"] = time.time()
+
+
+def player_state():
+    """The GET /v1/me/player payload, or None (=> 204, no active device)."""
+    track_id = _PLAYER["track_id"]
+    n = _n("trk", track_id) if track_id else None
+    if n is None or not (0 <= n < N_TRACKS):
+        return None
+
+    progress = int(_PLAYER["progress_ms"])
+    if _PLAYER["advance"] and _PLAYER["is_playing"]:
+        progress += int((time.time() - _PLAYER["configured_at"]) * 1000)
+
+    # Flow across track boundaries like an album playing through.
+    current = track(n)
+    while progress >= current["duration_ms"] and n + 1 < N_TRACKS:
+        progress -= current["duration_ms"]
+        n += 1
+        current = track(n)
+    progress = min(progress, current["duration_ms"])
+
+    return {
+        "device": {"id": "mock-device", "is_active": True, "name": "Mock Device", "type": "Computer"},
+        "timestamp": int(time.time() * 1000),
+        "is_playing": bool(_PLAYER["is_playing"]),
+        "progress_ms": progress,
+        "currently_playing_type": "track",
+        "item": current,
+    }
