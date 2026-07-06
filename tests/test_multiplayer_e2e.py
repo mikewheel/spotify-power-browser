@@ -153,6 +153,97 @@ def test_bridge_playlist_returns_only_tracks_neither_user_liked(two_user_graph):
 
 
 ###
+# Legacy rollback props vs per-user crawls (insert_batch_of_liked_songs.cypher)
+###
+
+LGCY = "LGCYTEST"
+
+
+@pytest.fixture
+def legacy_props_graph(neo4j_driver):
+    purge = (f"MATCH (n) WHERE (n.uri IS NOT NULL AND n.uri CONTAINS '{LGCY}') "
+             f"OR (n:User AND n.id CONTAINS '{LGCY}') DETACH DELETE n")
+    neo4j_driver.execute_query(purge)
+    yield neo4j_driver
+    neo4j_driver.execute_query(purge)
+
+
+def _insert_liked_page(driver, make, i, user_id, added_at):
+    """Persist one synthetic liked-songs item through the real handler+Cypher."""
+    page = {
+        "href": "https://api.spotify.com/v1/me/tracks",
+        "items": [{"added_at": added_at, "track": make.track(i)}],
+        "limit": 20, "offset": 0, "next": None, "total": 1,
+    }
+    LikedSongsPlaylistResponseHandler(
+        "https://api.spotify.com/v1/me/tracks", 0, page, user_id=user_id
+    ).write_to_neo4j(driver=driver)
+
+
+def _legacy_props(driver, i):
+    records, _, _ = driver.execute_query(
+        "MATCH (t:Track {uri: $uri}) "
+        "OPTIONAL MATCH (t)<-[:CONTAINS]-(al:Album) "
+        "OPTIONAL MATCH (t)<-[:CREATED]-(ar:Artist) "
+        "RETURN t.liked_songs AS t_flag, t.date_added_to_liked_songs AS t_date, "
+        "al.liked_songs AS al_flag, collect(DISTINCT ar.liked_songs) AS ar_flags",
+        uri=f"spotify:track:{i}")
+    return records[0]
+
+
+def test_legacy_mode_insert_still_writes_the_rollback_props(legacy_props_graph, make):
+    # user_id=None (legacy / pre-multiplayer message): byte-for-byte the old
+    # write — node flags + timestamp, and NO ownership layer.
+    _insert_liked_page(legacy_props_graph, make, f"{LGCY}1", None, "2021-01-01T00:00:00Z")
+
+    row = _legacy_props(legacy_props_graph, f"{LGCY}1")
+    assert row["t_flag"] is True
+    assert row["t_date"] == "2021-01-01T00:00:00Z"
+    assert row["al_flag"] is True
+    assert row["ar_flags"] == [True]
+    records, _, _ = legacy_props_graph.execute_query(
+        "MATCH (:User)-[l:LIKED]->(t:Track {uri: $uri}) RETURN count(l) AS c",
+        uri=f"spotify:track:{LGCY}1")
+    assert records[0]["c"] == 0
+
+
+def test_user_tagged_insert_leaves_legacy_props_untouched_on_shared_tracks(
+        legacy_props_graph, make):
+    # The rollback plan for 0001 ("ignore the new (:User) layer") only works
+    # while the legacy props stay a faithful single-user dataset: Bob's crawl
+    # of a shared track must not rewrite Alice's timestamp or flags.
+    _insert_liked_page(legacy_props_graph, make, f"{LGCY}1", None, "2021-01-01T00:00:00Z")
+    _insert_liked_page(legacy_props_graph, make, f"{LGCY}1", f"{LGCY}-bob",
+                       "2023-05-05T00:00:00Z")
+
+    row = _legacy_props(legacy_props_graph, f"{LGCY}1")
+    assert row["t_flag"] is True                        # kept
+    assert row["t_date"] == "2021-01-01T00:00:00Z"      # NOT Bob's 2023 date
+    # ...while Bob's ownership landed on the relationship layer, per-user:
+    records, _, _ = legacy_props_graph.execute_query(
+        "MATCH (u:User {id: $bob})-[l:LIKED]->(t:Track {uri: $uri}) "
+        "RETURN l.added_at AS added_at", bob=f"{LGCY}-bob", uri=f"spotify:track:{LGCY}1")
+    assert [r["added_at"] for r in records] == ["2023-05-05T00:00:00Z"]
+
+
+def test_user_tagged_insert_writes_no_legacy_props_on_new_tracks(legacy_props_graph, make):
+    # A per-user crawl's exclusive tracks must NOT be flagged into the legacy
+    # dataset (that union is what made re-running 0001 misattribute likes).
+    _insert_liked_page(legacy_props_graph, make, f"{LGCY}2", f"{LGCY}-bob",
+                       "2023-05-05T00:00:00Z")
+
+    row = _legacy_props(legacy_props_graph, f"{LGCY}2")
+    assert row["t_flag"] is None
+    assert row["t_date"] is None
+    assert row["al_flag"] is None
+    assert row["ar_flags"] == []    # collect() drops nulls: no artist was flagged
+    records, _, _ = legacy_props_graph.execute_query(
+        "MATCH (u:User {id: $bob})-[l:LIKED]->(t:Track {uri: $uri}) RETURN count(l) AS c",
+        bob=f"{LGCY}-bob", uri=f"spotify:track:{LGCY}2")
+    assert records[0]["c"] == 1
+
+
+###
 # Migration 0001/0002 (throwaway-DB only: they touch every legacy-flagged node)
 ###
 

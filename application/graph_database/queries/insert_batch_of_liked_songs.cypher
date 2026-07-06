@@ -4,8 +4,13 @@
 // ownership is written as (:User {id})-[:LIKED {added_at}]->(:Track) — the
 // FOREACH-over-conditional-list idiom below no-ops when $user_id is null, so
 // legacy messages (no user_id) keep the exact pre-multiplayer write. The
-// legacy node props (liked_songs / date_added_to_liked_songs) are still set
-// in BOTH modes for one release (rollback window — dropped by migration
+// legacy node props (liked_songs / date_added_to_liked_songs, incl. the
+// Album/Artist flags) are ONLY written in legacy mode ($user_id null): they
+// are the single-user rollback dataset for migration 0001, and a per-user
+// crawl writing them would corrupt it into a cross-user union with
+// last-writer-wins timestamps (and re-arm the 0001-rerun misattribution).
+// Per-user crawls write ONLY the (:User)-[:LIKED] layer. The props are kept
+// for one release (rollback window — dropped by migration
 // 0002_drop_legacy_liked_props when its preconditions hold).
 UNWIND $tracks as track
 
@@ -27,11 +32,14 @@ ON CREATE SET
     // include album artists and lose order, so mastering needs this list to
     // know the primary artist).
     t.artist_ids = [artist IN track.artists | artist.id],
-    t.liked_songs = true,
-    t.date_added_to_liked_songs = track.added_at
+    // Legacy rollback props: legacy mode only (SET to null is a no-op).
+    t.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE null END,
+    t.date_added_to_liked_songs = CASE WHEN $user_id IS NULL THEN track.added_at ELSE null END
 ON MATCH SET
-    t.liked_songs = true,
-    t.date_added_to_liked_songs = track.added_at,
+    // Legacy rollback props: preserved verbatim under per-user crawls.
+    t.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE t.liked_songs END,
+    t.date_added_to_liked_songs =
+        CASE WHEN $user_id IS NULL THEN track.added_at ELSE t.date_added_to_liked_songs END,
     // Entity mastering (plan 03): refresh the enrichment fields on re-insert so
     // backfills update existing nodes; coalesce so a payload that lacks a field
     // can't erase a previously stored value.
@@ -59,9 +67,9 @@ ON CREATE SET
     al.spotify_url = track.album.external_urls.spotify,
     al.type = track.album.type,
     al.href = track.album.href,
-    al.liked_songs = true
+    al.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE null END
 ON MATCH SET
-    al.liked_songs = true
+    al.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE al.liked_songs END
 
 MERGE (t)<-[:CONTAINS]-(al)
 
@@ -78,9 +86,9 @@ ON CREATE SET
     ar.name = artist.name,
     ar.spotify_url = artist.external_urls.spotify,
     ar.type = artist.type,
-    ar.liked_songs = true
+    ar.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE null END
 ON MATCH SET
-    ar.liked_songs = true
+    ar.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE ar.liked_songs END
 
 MERGE (t)<-[:CREATED]-(ar)
 MERGE (al)<-[:CREATED]-(ar)
@@ -97,9 +105,9 @@ ON CREATE SET
     ar.name = artist.name,
     ar.spotify_url = artist.external_urls.spotify,
     ar.type = artist.type,
-    ar.liked_songs = true
+    ar.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE null END
 ON MATCH SET
-    ar.liked_songs = true
+    ar.liked_songs = CASE WHEN $user_id IS NULL THEN true ELSE ar.liked_songs END
 
 MERGE (t)<-[:CREATED]-(ar)
 ;
