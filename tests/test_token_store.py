@@ -163,6 +163,29 @@ def test_refresh_of_primary_user_keeps_legacy_mirror_fresh(monkeypatch, tmp_path
     assert (tmp_path / "spotify_api_token.secret").read_text() == "mock-access-token"
 
 
+def test_legacy_refresh_mirrors_into_the_primarys_namespaced_dir(monkeypatch, tmp_path,
+                                                                 mock_base):
+    # The runbook documents the primary<->legacy mirror as kept in sync "on
+    # every save/refresh" — i.e. TWO-WAY. The legacy refresh token IS the
+    # primary's, so a user_id=None (legacy-path) refresh that rotates it must
+    # also land in secrets/users/<primary>/, or the primary's namespaced
+    # refresh token diverges and a later per-user 401 replays a stale
+    # (possibly invalidated) token -> 400 invalid_grant, wedging their crawl.
+    _wire(monkeypatch, tmp_path, mock_base)
+    monkeypatch.setattr(rt, "SPOTIFY_API_TOKEN_FILE", tmp_path / "spotify_api_token.secret")
+    monkeypatch.setattr(rt, "SPOTIFY_REFRESH_TOKEN_FILE",
+                        tmp_path / "spotify_refresh_token.secret")
+    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token", claim_primary=True)
+
+    rt.refresh_spotify_auth(user_id=None)   # e.g. a pre-multiplayer in-flight 401
+
+    # legacy files refreshed (the pre-existing one-way behavior)...
+    assert (tmp_path / "spotify_api_token.secret").read_text() == "mock-access-token"
+    # ...AND the primary's namespaced copies followed the rotation.
+    assert token_store.read_api_token("mockuser") == "mock-access-token"
+    assert token_store.read_refresh_token("mockuser") == "mock-refresh-token"
+
+
 def test_refresh_during_the_primary_deletion_window_does_not_promote(monkeypatch, tmp_path,
                                                                      mock_base):
     # Runbook §4 end-to-end: the primary (mockuser) is forgotten — marker,
