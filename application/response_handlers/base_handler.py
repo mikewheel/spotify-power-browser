@@ -9,10 +9,14 @@ logger = get_logger(__name__)
 
 class BaseResponseHandler(ABC):
 
-    def __init__(self, request_url, depth_of_search, response):
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
         self.request_url = request_url
         self.depth_of_search = depth_of_search
         self.response = response
+        # Plan 06 T5: the envelope's acting user. None = legacy single-user
+        # message (or a pre-multiplayer in-flight one) — handlers must treat
+        # that as "no per-user ownership to record".
+        self.user_id = user_id
 
     @property
     def name(self):

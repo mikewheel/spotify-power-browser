@@ -111,6 +111,7 @@ services:
     # documented default (notably CRAWLED_URL_DEDUP stays ON).
     environment:
       RESET_CRAWL: ${RESET_CRAWL:-false}
+      RESET_CRAWL_CATALOG: ${RESET_CRAWL_CATALOG:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
@@ -130,6 +131,7 @@ services:
     command: python3 application/response_handlers/main.py write_to_disk
     environment:
       RESET_CRAWL: ${RESET_CRAWL:-false}
+      RESET_CRAWL_CATALOG: ${RESET_CRAWL_CATALOG:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
@@ -141,6 +143,7 @@ services:
     environment:
       NEO4J_HOSTNAME: host.docker.internal
       RESET_CRAWL: ${RESET_CRAWL:-false}
+      RESET_CRAWL_CATALOG: ${RESET_CRAWL_CATALOG:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
@@ -176,6 +179,7 @@ services:
     command: python3 application/response_handlers/main.py follow_links
     environment:
       RESET_CRAWL: ${RESET_CRAWL:-false}
+      RESET_CRAWL_CATALOG: ${RESET_CRAWL_CATALOG:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
@@ -214,10 +218,17 @@ services:
       # pointer as responses_write_to_neo4j.
       NEO4J_HOSTNAME: host.docker.internal
       RESET_CRAWL: ${RESET_CRAWL:-false}
+      RESET_CRAWL_CATALOG: ${RESET_CRAWL_CATALOG:-false}
       USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
       ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
+      # Plan 06 multiplayer: which user(s) to seed for. Default: the primary
+      # user (legacy no-user mode when nobody authorized via /login yet).
+      #   CRAWL_USER=<spotify_user_id> docker compose up     one user
+      #   CRAWL_ALL_USERS=true docker compose up             all, sequentially
+      CRAWL_USER: ${CRAWL_USER:-}
+      CRAWL_ALL_USERS: ${CRAWL_ALL_USERS:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

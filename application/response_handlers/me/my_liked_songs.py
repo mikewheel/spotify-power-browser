@@ -23,8 +23,8 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_batch_of_liked_songs.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
-    def __init__(self, request_url, depth_of_search, response):
-        super().__init__(request_url, depth_of_search, response)
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
+        super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
     def parse_response(self):
         my_liked_songs = self.response["items"]
@@ -96,7 +96,11 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
             query=self.__class__.CYPHER_QUERY,
             driver=driver,
             database=database,
-            tracks=tracks
+            tracks=tracks,
+            # Plan 06: writes (:User {id})-[:LIKED {added_at}] edges when the
+            # envelope carried a user; null keeps the legacy node-props-only
+            # write (the Cypher's FOREACH no-ops).
+            user_id=self.user_id
         )
 
     def follow_links(self):
@@ -106,6 +110,9 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
 
         items = self.response["items"]
 
+        # Follow-ups conserve the envelope's user (plan 06): the catalog URLs
+        # below dedup in the shared set regardless of user, but the engine
+        # keeps using the same bearer for the whole chain.
         if USE_BATCH_ENDPOINTS:
             # The page already carries full track objects (written to Neo4j by
             # this handler), so only the album/artist neighbors need fetching.
@@ -113,11 +120,13 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
                 "albums",
                 [song["track"]["album"]["id"] for song in items],
                 depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id,
             )
             SpotifyRequestFactory.request_batch(
                 "artists",
                 [artist["id"] for song in items for artist in song["track"]["artists"]],
                 depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id,
             )
             return
 
@@ -126,20 +135,23 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
             logger.info(f'Following song from Liked Songs: {song["track"]["name"]}')
             SpotifyRequestFactory.request_url(
                 url=song["track"]["href"],
-                depth_of_search=(self.depth_of_search - 1)
+                depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id
             )
 
             logger.info(f'Following album from liked song {song["track"]["name"]}: {song["track"]["album"]["name"]}')
             SpotifyRequestFactory.request_url(
                 url=song["track"]["album"]["href"],
-                depth_of_search=(self.depth_of_search - 1)
+                depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id
             )
 
             for artist in song["track"]["artists"]:
                 logger.info(f'Following artist from liked song {song["track"]["name"]}: {artist["name"]}')
                 SpotifyRequestFactory.request_url(
                     url=artist["href"],
-                    depth_of_search=(self.depth_of_search - 1)
+                    depth_of_search=(self.depth_of_search - 1),
+                    user_id=self.user_id
                 )
 
     def write_to_sqlite(self):

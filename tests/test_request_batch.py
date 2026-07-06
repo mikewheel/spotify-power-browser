@@ -10,7 +10,7 @@ def captured(monkeypatch):
     monkeypatch.setattr(
         SpotifyRequestFactory,
         "request_url",
-        staticmethod(lambda url, depth_of_search=0: calls.append((url, depth_of_search))),
+        staticmethod(lambda url, depth_of_search=0, user_id=None: calls.append((url, depth_of_search))),
     )
     return calls
 

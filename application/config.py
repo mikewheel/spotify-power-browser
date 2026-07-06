@@ -59,9 +59,30 @@ CRAWLED_URL_DEDUP = _env_bool('CRAWLED_URL_DEDUP', True)
 # clears. Flip on via env (USE_BATCH_ENDPOINTS=true) after probing.
 USE_BATCH_ENDPOINTS = _env_bool('USE_BATCH_ENDPOINTS', False)
 
-# Clear the Redis crawled-URL set at crawl start for a fresh run. Default off so
-# the dedup set persists across runs (resume); set RESET_CRAWL=true to start clean.
+# Clear the Redis crawled-URL dedup state at crawl start for a fresh run.
+# Default off so the dedup set persists across runs (resume).
+#
+# Multiplayer semantics (plan 06 T6 design decision): RESET_CRAWL=true clears
+# the SEEDING USER's per-user set (their /v1/me/* URLs) when the factory runs
+# with a user, or the shared set when it runs in legacy no-user mode. The
+# shared CATALOG set is deliberately NOT cleared by RESET_CRAWL in per-user
+# mode: catalog nodes are shared by construction and MERGE would no-op anyway,
+# so re-fetching the whole catalog to re-crawl one user's likes only burns rate
+# limit (the PR-15 lesson). To force catalog re-fetches too (e.g. to refresh
+# stale popularity numbers), additionally set RESET_CRAWL_CATALOG=true.
 RESET_CRAWL = _env_bool('RESET_CRAWL', False)
+RESET_CRAWL_CATALOG = _env_bool('RESET_CRAWL_CATALOG', False)
+
+###
+# Multiplayer (plan 06 T5): which user(s) the requests factory seeds for.
+# CRAWL_USER=<spotify_user_id> seeds one user; CRAWL_ALL_USERS=true iterates
+# secrets/users/ sequentially (rate limits are per-app — parallel per-user
+# crawls would fight each other). Default: the recorded primary user, falling
+# back to the legacy no-user envelope when no user has ever authorized.
+# CLI equivalents: python3 application/requests_factory.py --user <id> | --all-users
+###
+CRAWL_USER = os.environ.get('CRAWL_USER') or None
+CRAWL_ALL_USERS = _env_bool('CRAWL_ALL_USERS', False)
 
 ###
 # Adjacent-artist discovery (plan 01) — an explicitly-gated second crawl kind,

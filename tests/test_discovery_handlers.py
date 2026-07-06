@@ -23,7 +23,7 @@ def _capture_request_url(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_url",
-        staticmethod(lambda url, depth_of_search=0: calls.append((url, depth_of_search))),
+        staticmethod(lambda url, depth_of_search=0, user_id=None: calls.append((url, depth_of_search))),
     )
     return calls
 
@@ -32,7 +32,7 @@ def _capture_request_batch(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_batch",
-        classmethod(lambda cls, rtype, ids, depth_of_search=0: calls.append((rtype, list(ids), depth_of_search))),
+        classmethod(lambda cls, rtype, ids, depth_of_search=0, user_id=None: calls.append((rtype, list(ids), depth_of_search))),
     )
     return calls
 

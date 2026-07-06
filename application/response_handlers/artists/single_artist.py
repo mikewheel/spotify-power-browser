@@ -20,8 +20,8 @@ class GetSingleArtistResponseHandler(BaseResponseHandler):
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_artist.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
-    def __init__(self, request_url, depth_of_search, response):
-        super().__init__(request_url, depth_of_search, response)
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
+        super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
     def check_url_match(self, url):
         return False  # TODO

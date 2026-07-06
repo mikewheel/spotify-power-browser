@@ -14,6 +14,7 @@ from application.config import (
 )
 from application.cache.redis_client import unmark_url
 from application.spotify_authentication.refresh_token import refresh_spotify_auth
+from application.spotify_authentication.token_store import has_user, read_api_token
 from application.loggers import get_logger
 from application.message_queue.connect import (
     connect_to_rabbitmq_exchange,
@@ -38,41 +39,66 @@ MAX_RETRY_AFTER_SECONDS = 600
 # (and roll back the dedup mark) after this many so the worker can move on.
 MAX_HTTP_429_RETRIES_PER_REQUEST = 5
 
-SPOTIFY_API_TOKEN = None
+# Per-user access-token cache (plan 06 T5): user_id -> token. The None key is
+# the legacy single-user identity backed by SPOTIFY_API_TOKEN_FILE.
+TOKEN_CACHE = {}
 
 
-def load_api_token():
-    """Read the current Spotify access token from disk (rewritten on refresh)."""
-    logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
-    with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
-        return f.read()
+def load_api_token(user_id=None):
+    """Read a user's current Spotify access token from disk (rewritten on
+    refresh). user_id=None reads the legacy single-user file."""
+    if user_id is None:
+        logger.info(f'Reading in Spotify API Token from {SPOTIFY_API_TOKEN_FILE}')
+        with open(SPOTIFY_API_TOKEN_FILE, "r") as f:
+            return f.read()
+    return read_api_token(user_id)
 
 
-def get_api_token():
-    """Lazily load and cache the access token, so this module can be imported
-    without a token file present (e.g. in tests)."""
-    global SPOTIFY_API_TOKEN
-    if SPOTIFY_API_TOKEN is None:
-        SPOTIFY_API_TOKEN = load_api_token()
-    return SPOTIFY_API_TOKEN
+def get_api_token(user_id=None):
+    """Lazily load and cache a user's access token, so this module can be
+    imported without a token file present (e.g. in tests)."""
+    if user_id not in TOKEN_CACHE:
+        TOKEN_CACHE[user_id] = load_api_token(user_id)
+    return TOKEN_CACHE[user_id]
+
+
+def resolve_effective_user(user_id):
+    """Map an envelope's user_id to the identity the engine should act as.
+
+    Absent (None) or UNKNOWN user ids (no token dir on disk) fall back to the
+    legacy single-user identity — back-compat with in-flight messages from
+    before the multiplayer envelope, and resilience against a user whose
+    tokens were deleted mid-crawl (right-to-be-forgotten) without wedging the
+    queue."""
+    if user_id is None:
+        return None
+    if not has_user(user_id):
+        logger.warning(
+            f'Envelope user {user_id!r} has no token dir under secrets/users/ - '
+            f'falling back to the legacy single-user token.'
+        )
+        return None
+    return user_id
 
 
 def make_spotify_api_call(ch, method, properties, body):
-    global SPOTIFY_API_TOKEN
     msg = loads(body)
     logger.info(f'Received message from queue:\n{pformat(msg)}')
 
     request_url = msg["request_url"]
     depth_of_search = msg["depth_of_search"]
+    # .get(): messages published before plan 06 carry no user_id -> legacy.
+    envelope_user_id = msg.get("user_id")
+    user_id = resolve_effective_user(envelope_user_id)
     http_500_error_count = 0
     http_429_error_count = 0
 
     while True:
-        logger.info(f'GET: {request_url} ...')
+        logger.info(f'GET: {request_url} ...' + (f' [user {user_id}]' if user_id else ''))
         try:
             r = requests.get(
                 request_url,
-                headers={"Authorization": f'Bearer {get_api_token()}'}
+                headers={"Authorization": f'Bearer {get_api_token(user_id)}'}
             )
         except requests.exceptions.ConnectionError:  # Connection reset by peer
             logger.warning("Connection reset by peer. Retrying...")
@@ -87,7 +113,7 @@ def make_spotify_api_call(ch, method, properties, body):
 
                 if http_500_error_count >= MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST:
                     if CRAWLED_URL_DEDUP:
-                        unmark_url(request_url, depth_of_search)
+                        unmark_url(request_url, depth_of_search, user_id=envelope_user_id)
                     raise requests.exceptions.HTTPError(
                         f'HTTP 500 errors for {request_url} have exceeded max retry count of '
                         f'{MAX_HTTP_500_ERROR_RETRIES_PER_REQUEST}'
@@ -103,7 +129,7 @@ def make_spotify_api_call(ch, method, properties, body):
                 http_429_error_count += 1
                 if http_429_error_count >= MAX_HTTP_429_RETRIES_PER_REQUEST:
                     if CRAWLED_URL_DEDUP:
-                        unmark_url(request_url, depth_of_search)
+                        unmark_url(request_url, depth_of_search, user_id=envelope_user_id)
                     raise requests.exceptions.HTTPError(
                         f'HTTP 429 rate limiting for {request_url} exceeded max retry count '
                         f'of {MAX_HTTP_429_RETRIES_PER_REQUEST}'
@@ -123,34 +149,45 @@ def make_spotify_api_call(ch, method, properties, body):
                 continue
 
             elif r.status_code == 401:
-                logger.warning(f'HTTP 401: Access token expired. Requesting new token...')
-                refresh_spotify_auth()
-                SPOTIFY_API_TOKEN = load_api_token()
+                logger.warning(
+                    f'HTTP 401: Access token expired'
+                    + (f' for user {user_id}' if user_id else '')
+                    + '. Requesting new token...'
+                )
+                refresh_spotify_auth(user_id=user_id)
+                TOKEN_CACHE[user_id] = load_api_token(user_id)
                 logger.info(f'Success: new access token received.')
                 continue
 
             else:
                 if CRAWLED_URL_DEDUP:
-                    unmark_url(request_url, depth_of_search)
+                    unmark_url(request_url, depth_of_search, user_id=envelope_user_id)
                 raise e
         else:
             if r.status_code != 200:
                 if CRAWLED_URL_DEDUP:
-                    unmark_url(request_url, depth_of_search)
+                    unmark_url(request_url, depth_of_search, user_id=envelope_user_id)
                 raise requests.exceptions.HTTPError(f'HTTP {r.status_code} received for {request_url}.')
 
             response = r.json()
 
             if response.get("next") is not None:
                 next_request_url = response["next"]
-                # Send a request for the next URL
-                SpotifyRequestFactory.request_url(next_request_url, depth_of_search=depth_of_search)
+                # Send a request for the next URL. The pagination continuation
+                # MUST keep the envelope's user (plan 06): /v1/me/tracks page 2
+                # is a different resource per bearer.
+                SpotifyRequestFactory.request_url(
+                    next_request_url,
+                    depth_of_search=depth_of_search,
+                    user_id=envelope_user_id,
+                )
             else:
                 logger.debug(f'Reached the end of pagination for URL {request_url}')
-            
+
             response_data_with_request = {
                 "request_url": request_url,
                 "depth_of_search": depth_of_search,
+                "user_id": envelope_user_id,
                 "response": response
             }
 

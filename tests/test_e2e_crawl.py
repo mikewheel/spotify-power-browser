@@ -41,7 +41,7 @@ def test_follow_links_from_a_mock_page_points_back_at_the_mock(mock_base, monkey
     captured = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_url",
-        staticmethod(lambda url, depth_of_search=0: captured.append(url)),
+        staticmethod(lambda url, depth_of_search=0, user_id=None: captured.append(url)),
     )
     LikedSongsPlaylistResponseHandler(f"{mock_base}/v1/me/tracks", 1, page).follow_links()
     assert captured  # it followed track/album/artist hrefs

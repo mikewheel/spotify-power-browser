@@ -1,4 +1,12 @@
-// Iterate over a list of tracks
+// Iterate over a list of tracks.
+//
+// Multiplayer (plan 06 T5): $user_id carries the envelope's user. When known,
+// ownership is written as (:User {id})-[:LIKED {added_at}]->(:Track) — the
+// FOREACH-over-conditional-list idiom below no-ops when $user_id is null, so
+// legacy messages (no user_id) keep the exact pre-multiplayer write. The
+// legacy node props (liked_songs / date_added_to_liked_songs) are still set
+// in BOTH modes for one release (rollback window — dropped by migration
+// 0002_drop_legacy_liked_props when its preconditions hold).
 UNWIND $tracks as track
 
 MERGE (t:Track {uri: track.uri})
@@ -31,6 +39,13 @@ ON MATCH SET
     t.album_type = coalesce(track.album.album_type, t.album_type),
     t.linked_from_id = coalesce(track.linked_from.id, t.linked_from_id),
     t.artist_ids = coalesce([artist IN track.artists | artist.id], t.artist_ids)
+
+// Ownership relationship (plan 06): no-op when $user_id is null.
+FOREACH (uid IN CASE WHEN $user_id IS NULL THEN [] ELSE [$user_id] END |
+    MERGE (u:User {id: uid})
+    MERGE (u)-[l:LIKED]->(t)
+    SET l.added_at = track.added_at
+)
 
 MERGE (al:Album {uri: track.album.uri})
 ON CREATE SET

@@ -24,7 +24,7 @@ def _patch_request_batch(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_batch",
-        classmethod(lambda cls, rtype, ids, depth_of_search=0: calls.append((rtype, list(ids), depth_of_search))),
+        classmethod(lambda cls, rtype, ids, depth_of_search=0, user_id=None: calls.append((rtype, list(ids), depth_of_search))),
     )
     return calls
 

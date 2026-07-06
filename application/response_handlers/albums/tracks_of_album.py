@@ -34,8 +34,8 @@ class GetTracksOfAlbumResponseHandler(BaseResponseHandler):
     with open(GRAPH_DATABASE_QUERIES_DIR / "discovery" / "insert_tracks_of_album_page.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
-    def __init__(self, request_url, depth_of_search, response):
-        super().__init__(request_url, depth_of_search, response)
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
+        super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
     @property
     def album_id(self):
@@ -75,6 +75,7 @@ class GetTracksOfAlbumResponseHandler(BaseResponseHandler):
             "artists",
             [artist["id"] for track in self.response["items"] for artist in track["artists"]],
             depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id,
         )
 
     def write_to_sqlite(self):
