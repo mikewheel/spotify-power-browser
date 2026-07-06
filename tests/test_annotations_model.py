@@ -123,7 +123,7 @@ def test_parse_position(text, expected):
     assert parse_position(text) == expected
 
 
-@pytest.mark.parametrize("bad", ["", None, "abc", "1:2:3:4", "-5", "12ms34"])
+@pytest.mark.parametrize("bad", ["", None, "abc", "1:2:3:4", "-5", "12ms34", "-500ms", "- 41000ms"])
 def test_parse_position_rejects_garbage(bad):
     with pytest.raises(ValueError):
         parse_position(bad)

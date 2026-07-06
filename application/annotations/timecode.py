@@ -25,9 +25,15 @@ def parse_position(text):
 
     if cleaned.endswith("ms"):
         try:
-            return int(cleaned[:-2].strip())
+            ms = int(cleaned[:-2].strip())
         except ValueError:
             raise ValueError(f"invalid millisecond position: {text!r}")
+        if ms < 0:
+            # Same rule as the colon/seconds path below: playback positions
+            # can't be negative, and a negative ms corrupts sort order and
+            # section chains downstream.
+            raise ValueError(f"position cannot be negative: {text!r}")
+        return ms
 
     parts = cleaned.split(":")
     if len(parts) > 3:
