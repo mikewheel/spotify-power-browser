@@ -40,8 +40,10 @@ def _album(i, artists=None):
     }
 
 
-def _track(i, album=None, artists=None):
-    return {
+def _track(i, album=None, artists=None, isrc=None, linked_from_id=None):
+    """isrc: None -> deterministic default; "" -> omit external_ids entirely
+    (a very old/indie release without one)."""
+    track = {
         "uri": f"spotify:track:{i}",
         "id": f"trk{i}",
         "name": f"Track {i}",
@@ -55,6 +57,15 @@ def _track(i, album=None, artists=None):
         "album": _album(i) if album is None else album,
         "artists": [_artist(i)] if artists is None else artists,
     }
+    if isrc != "":
+        track["external_ids"] = {"isrc": f"ISRC{i}" if isrc is None else isrc}
+    if linked_from_id is not None:
+        track["linked_from"] = {
+            "id": linked_from_id,
+            "uri": f"spotify:track:{linked_from_id}",
+            "type": "track",
+        }
+    return track
 
 
 def _liked_page(tracks, offset=0, next_url=None):
