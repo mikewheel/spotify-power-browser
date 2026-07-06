@@ -5,6 +5,7 @@ from application.graph_database.connect import execute_query_against_neo4j
 from application.loggers import get_logger
 from application.requests_factory import SpotifyRequestFactory
 from application.response_handlers.base_handler import BaseResponseHandler
+from application.spotify_authentication.token_store import validate_user_id
 
 logger = get_logger(__name__)
 
@@ -84,7 +85,15 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
         return False  # TODO
 
     def write_to_disk(self):
-        output_file = self.DISK_LOCATION / f"{self.clean_name}.json"
+        # Multiplayer (plan 06): page filenames are keyed only by offset, so
+        # each user's crawl archives under its own subdirectory — otherwise a
+        # CRAWL_ALL_USERS run has user B silently overwrite user A's raw
+        # response archive page by page. user_id=None keeps the legacy path
+        # byte-for-byte. validate_user_id: the id becomes a path segment.
+        directory = self.DISK_LOCATION
+        if self.user_id is not None:
+            directory = directory / validate_user_id(self.user_id)
+        output_file = directory / f"{self.clean_name}.json"
         super()._write_to_disk(output_path=output_file)
 
     def write_to_neo4j(self, driver, database="neo4j"):
