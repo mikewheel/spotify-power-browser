@@ -30,8 +30,10 @@ ISRCs/track-ids. Never a bare Spotify id.
 Stances (documented per the plan's open questions):
 - Re-recordings ("Taylor's Version") differ in ISRC and usually duration, so
   they land as separate Songs, each kind 'canonical'. Deliberate.
-- From the graph, CREATED edges are unordered, so run.py sorts artist ids and
-  the lexicographically smallest serves as a stable primary-artist proxy.
+- The graph supplies artist_ids from t.artist_ids — the performing artists in
+  credit order, persisted by the insert Cyphers. Legacy nodes without that
+  field fall back to sorted CREATED-edge ids (unordered and polluted by album
+  artists), a weaker primary proxy until the ISRC backfill refreshes them.
 """
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field

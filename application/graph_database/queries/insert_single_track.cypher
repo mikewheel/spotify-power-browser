@@ -13,14 +13,19 @@ ON CREATE SET
     t.spotify_url = track.external_urls.spotify,
     t.isrc = track.external_ids.isrc,
     t.album_type = track.album.album_type,
-    t.linked_from_id = track.linked_from.id
+    t.linked_from_id = track.linked_from.id,
+    // The track's OWN performing artists, in credit order (CREATED edges also
+    // include album artists and lose order, so mastering needs this list to
+    // know the primary artist).
+    t.artist_ids = [artist IN track.artists | artist.id]
 // Entity mastering (plan 03): refresh the enrichment fields on re-insert so
 // backfills update existing nodes; coalesce so a payload that lacks a field
 // can't erase a previously stored value.
 ON MATCH SET
     t.isrc = coalesce(track.external_ids.isrc, t.isrc),
     t.album_type = coalesce(track.album.album_type, t.album_type),
-    t.linked_from_id = coalesce(track.linked_from.id, t.linked_from_id)
+    t.linked_from_id = coalesce(track.linked_from.id, t.linked_from_id),
+    t.artist_ids = coalesce([artist IN track.artists | artist.id], t.artist_ids)
 
 MERGE (al:Album {uri: track.album.uri})
 ON CREATE SET
