@@ -366,6 +366,52 @@ def test_remix_of_edge_written(graph, make):
         _delete_songs(graph, result)
 
 
+def test_remix_of_edge_repoints_when_parent_cluster_id_changes(graph, make):
+    """REMIX_OF mirrors VERSION_OF's re-pointing semantics: when a later crawl
+    flips the parent cluster's Song id (bare ISRC -> song:<hash>), a re-run
+    must RE-POINT the remix's edge, not accumulate a stale one — run.py is
+    documented idempotent/re-runnable."""
+    artist = make.artist("MSTTEST6")
+    parent_a = make.track("MSTTEST6a", artists=[artist], isrc=f"{MARKER}ISRC6A")
+    remix = make.track("MSTTEST6r", artists=[artist], isrc=f"{MARKER}ISRC6R")
+    parent_a["name"] = "Bells MSTTEST"
+    remix["name"] = "Bells MSTTEST (Nightcrawler Remix)"
+    _seed_graph_tracks(graph, [parent_a, remix])
+
+    run1 = cluster_tracks([track_record_from_api(t) for t in (parent_a, remix)])
+    assert len(run1.remix_edges) == 1
+
+    # Run 2: a second parent variant with a different ISRC joins the parent
+    # cluster (heuristic tier), so the parent Song id flips from the bare
+    # ISRC to a song:<hash> while the remix's own Song id stays stable.
+    parent_b = make.track("MSTTEST6b", artists=[artist], isrc=f"{MARKER}ISRC6B")
+    parent_b["name"] = "Bells MSTTEST"
+    parent_b["explicit"] = True
+    _seed_graph_tracks(graph, [parent_b])
+    run2 = cluster_tracks([track_record_from_api(t) for t in (parent_a, parent_b, remix)])
+    assert len(run2.remix_edges) == 1
+    assert run2.remix_edges[0].remix_song_id == run1.remix_edges[0].remix_song_id
+    assert run2.remix_edges[0].parent_song_id != run1.remix_edges[0].parent_song_id
+
+    try:
+        write_mastering_result(run1, graph)
+        write_mastering_result(run2, graph)
+        recs, _, _ = graph.execute_query(
+            "MATCH (remix:Song {id: $rid})-[:REMIX_OF]->(parent:Song) "
+            "RETURN parent.id AS pid ORDER BY pid",
+            rid=run2.remix_edges[0].remix_song_id)
+        # Re-pointed, not accumulated: exactly ONE parent — the new one. The
+        # old parent Song node itself stays (orphaned, never deleted).
+        assert [r["pid"] for r in recs] == [run2.remix_edges[0].parent_song_id]
+        recs, _, _ = graph.execute_query(
+            "MATCH (s:Song {id: $old}) RETURN count(s) AS c",
+            old=run1.remix_edges[0].parent_song_id)
+        assert recs[0]["c"] == 1
+    finally:
+        _delete_songs(graph, run1)
+        _delete_songs(graph, run2)
+
+
 def test_song_uniqueness_constraint_applies(neo4j_driver):
     from application.graph_database.initialize_database_environment import (
         apply_uniqueness_constraints,
