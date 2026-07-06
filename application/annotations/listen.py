@@ -255,7 +255,11 @@ class PlaybackTracker:
         if record is None:
             return "nothing to nudge"
         new_ms = max(0, int(record[position_key]) + delta_ms)
-        self.writer.nudge(record, new_ms)
+        if not self.writer.nudge(record, new_ms):
+            # The graph rejected the move (it would invert a section or cross
+            # a neighboring boundary) - keep the local copy in sync: unchanged.
+            return (f'nudge blocked: {format_ms(new_ms)} would cross a section '
+                    f'boundary - {record["type"]} stays at {format_ms(record[position_key])}')
         record[position_key] = new_ms
         return f'{record["type"]} nudged to {format_ms(new_ms)}'
 

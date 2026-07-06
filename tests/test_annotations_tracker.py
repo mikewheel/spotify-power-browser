@@ -32,6 +32,9 @@ class FakeWriter:
         self.nudges = []
         self.existing_orders = existing_orders or {}
         self.graph_tracks = graph_tracks
+        # Mirrors the real writer's nudge contract: False = the graph
+        # rejected the move (chain invariant) and nothing changed.
+        self.nudge_applied = True
 
     def _check_track(self, track_id):
         if self.graph_tracks is not None and track_id not in self.graph_tracks:
@@ -65,7 +68,10 @@ class FakeWriter:
         self.undone.append(record)
 
     def nudge(self, record, at_ms):
+        if not self.nudge_applied:
+            return False
         self.nudges.append((record["id"], at_ms))
+        return True
 
     def next_section_order(self, track_id):
         return self.existing_orders.get(track_id, 0)
@@ -232,6 +238,17 @@ def test_nudge_section_moves_start_ms():
     tracker.handle_key("s")
     tracker.handle_key("-")
     assert writer.records[0]["start_ms"] == 60000 - NUDGE_STEP_MS
+
+
+def test_rejected_nudge_keeps_local_record_in_sync_with_graph():
+    tracker, writer, _ = _tracker([_state(progress_ms=10000)], prompts=["hit"])
+    tracker.poll()
+    tracker.handle_key("c")  # cue at 10000
+    writer.nudge_applied = False  # graph refuses: would cross a boundary
+    feedback = tracker.handle_key("-")
+    assert "blocked" in feedback
+    assert writer.records[0]["at_ms"] == 10000  # local copy NOT moved
+    assert writer.nudges == []
 
 
 def test_nudge_with_nothing_captured():

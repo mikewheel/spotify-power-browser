@@ -225,10 +225,47 @@ def test_nudge_cue_moves_at_ms(writer):
 def test_nudge_section_moves_start_and_chained_previous_end(writer):
     writer.add_section(TRACK_ID, 0, 0, "intro")
     boundary = writer.add_section(TRACK_ID, 1, 64000, "buildup 1")
-    writer.nudge(boundary, 63500)
+    assert writer.nudge(boundary, 63500) is True
     sections = writer.fetch_annotations(TRACK_ID)["sections"]
     assert sections[1]["start_ms"] == 63500
     assert sections[0]["end_ms"] == 63500  # the chained boundary moved with it
+
+
+def test_nudge_section_below_previous_start_is_rejected(writer):
+    """The verifier's reproduction: A at 9800, B at 10000 (A.end chained to
+    10000). One '-' press asks for 9500, which would invert A
+    (end 9500 < start 9800) and start B before A. Rejected wholesale."""
+    writer.add_section(TRACK_ID, 0, 9800, "intro")
+    boundary = writer.add_section(TRACK_ID, 1, 10000, "buildup")
+    assert writer.nudge(boundary, 9500) is False
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [(s["label"], s["start_ms"], s["end_ms"]) for s in sections] == [
+        ("intro", 9800, 10000),  # NOT inverted
+        ("buildup", 10000, None),  # NOT moved
+    ]
+    # equal start would also violate strictly-increasing starts
+    assert writer.nudge(boundary, 9800) is False
+
+
+def test_nudge_section_across_next_boundary_is_rejected(writer):
+    writer.add_section(TRACK_ID, 0, 0, "intro")
+    middle = writer.add_section(TRACK_ID, 1, 64000, "buildup 1")
+    writer.add_section(TRACK_ID, 2, 130000, "drop 1")
+    assert writer.nudge(middle, 130000) is False  # collides with drop's start
+    assert writer.nudge(middle, 130500) is False  # would invert buildup (end 130000)
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert [(s["label"], s["start_ms"], s["end_ms"]) for s in sections] == [
+        ("intro", 0, 64000),
+        ("buildup 1", 64000, 130000),
+        ("drop 1", 130000, None),
+    ]
+    # in-bounds moves still work in both directions at the boundary
+    assert writer.nudge(middle, 64500) is True
+    assert writer.nudge(middle, 63500) is True
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert sections[1]["start_ms"] == 63500
+    assert sections[0]["end_ms"] == 63500
+    assert all(s["end_ms"] is None or s["end_ms"] >= s["start_ms"] for s in sections)
 
 
 def test_next_section_order_uses_max_not_count(writer):

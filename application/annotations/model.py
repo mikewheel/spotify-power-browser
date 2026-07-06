@@ -194,7 +194,13 @@ class Neo4jAnnotationWriter:
         logger.info(f'Undid {record["type"]} {record["id"]}')
 
     def nudge(self, record, at_ms):
-        self._execute(NUDGE_ANNOTATION_QUERY, annotation_id=record["id"], at_ms=int(at_ms))
+        """Move an annotation's position. Returns True when applied; False
+        when the move was rejected because it would break the section-chain
+        invariant (invert a section or cross a neighboring boundary) — the
+        graph is untouched in that case, so callers must not update their
+        local copy either."""
+        rows = self._fetch(NUDGE_ANNOTATION_QUERY, annotation_id=record["id"], at_ms=int(at_ms))
+        return bool(rows and rows[0]["applied"])
 
     def next_section_order(self, track_id):
         rows = self._fetch(NEXT_SECTION_ORDER_QUERY, track_id=track_id)
