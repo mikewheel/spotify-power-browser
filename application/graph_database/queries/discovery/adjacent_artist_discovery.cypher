@@ -6,9 +6,14 @@
 // Queries are separated by semicolons and take $-parameters. Keep literal
 // semicolons out of the comments — tooling splits on them.
 //
-// Frontier provenance: liked-songs nodes carry liked_songs = true, nodes the
-// discography crawl created carry crawl_source = 'discography', and frontier
-// artists have crawl_source without liked_songs.
+// Multiplayer (plan 06 T2): "my taste" is the $user_id parameter traversing
+// (:User)-[:LIKED] (requires migration 0001). Every query below takes
+// $user_id, where null means "any user" — identical to the pre-06 behavior on a
+// single-user graph.
+//
+// Frontier provenance: nodes the discography crawl created carry
+// crawl_source = 'discography' — liked tracks are the targets of [:LIKED]
+// edges, and frontier artists have crawl_source and no inbound taste edges.
 
 
 // ---------------------------------------------------------------------------
@@ -17,8 +22,10 @@
 // the first crawl and pick the threshold whose qualifying-artist count keeps
 // the projected call volume comfortable (the plan's estimate: ~1,200 artists
 // = ~2,700 calls = 20-25 min). The shipped default is 3.
+// Params: $user_id
 // ---------------------------------------------------------------------------
-MATCH (a:Artist)-[:CREATED]->(t:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(t:Track)<-[:CREATED]-(a:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH a, count(DISTINCT t) AS liked
 WITH collect(liked) AS liked_counts
 UNWIND range(1, 20) AS threshold
@@ -33,9 +40,10 @@ ORDER BY threshold
 // to the candidate) over popularity (lower = more interesting), with a "via"
 // explanation. A collab re-released on five editions counts five times:
 // inflated — prefer 1b after a mastering run.
-// Params: $max_popularity (e.g. 40), $min_bridges (e.g. 2)
+// Params: $user_id, $max_popularity (e.g. 40), $min_bridges (e.g. 2)
 // ---------------------------------------------------------------------------
-MATCH (mine:Artist)-[:CREATED]->(:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(:Track)<-[:CREATED]-(mine:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH collect(DISTINCT mine) AS my_artists
 UNWIND my_artists AS m
 MATCH (m)-[:CREATED]->(t:Track)<-[:CREATED]-(cand:Artist)
@@ -55,9 +63,10 @@ ORDER BY bridges DESC, cand.popularity ASC LIMIT 50
 // across a single, an album cut, and a deluxe re-release is one shared song,
 // not three. Requires a `python -m application.mastering.run` pass so every
 // Track has its VERSION_OF edge.
-// Params: $max_popularity, $min_bridges
+// Params: $user_id, $max_popularity, $min_bridges
 // ---------------------------------------------------------------------------
-MATCH (mine:Artist)-[:CREATED]->(:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(:Track)<-[:CREATED]-(mine:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH collect(DISTINCT mine) AS my_artists
 UNWIND my_artists AS m
 MATCH (m)-[:CREATED]->(t:Track)<-[:CREATED]-(cand:Artist)
@@ -75,9 +84,10 @@ ORDER BY bridges DESC, shared_songs DESC, cand.popularity ASC LIMIT 50
 // 2. Bonus: normalized obscurity-weighted ranking (the plan's "tune the
 // ordering" note) — bridges relative to reach, so a popularity-99 artist
 // with 20 bridges no longer buries an unknown with 3.
-// Params: $max_popularity, $min_bridges
+// Params: $user_id, $max_popularity, $min_bridges
 // ---------------------------------------------------------------------------
-MATCH (mine:Artist)-[:CREATED]->(:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(:Track)<-[:CREATED]-(mine:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH collect(DISTINCT mine) AS my_artists
 UNWIND my_artists AS m
 MATCH (m)-[:CREATED]->(t:Track)<-[:CREATED]-(cand:Artist)

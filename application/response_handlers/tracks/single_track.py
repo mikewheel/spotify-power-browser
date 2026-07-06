@@ -21,8 +21,8 @@ class GetSingleTrackResponseHandler(BaseResponseHandler):
     with open(GRAPH_DATABASE_QUERIES_DIR / "insert_single_track.cypher", "r") as f:
         CYPHER_QUERY = f.read()
 
-    def __init__(self, request_url, depth_of_search, response):
-        super().__init__(request_url, depth_of_search, response)
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
+        super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
     def check_url_match(self, url):
         return False  # TODO
@@ -49,25 +49,29 @@ class GetSingleTrackResponseHandler(BaseResponseHandler):
                 "albums",
                 [self.response["album"]["id"]],
                 depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id,
             )
             SpotifyRequestFactory.request_batch(
                 "artists",
                 [artist["id"] for artist in self.response["artists"]],
                 depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id,
             )
             return
 
         logger.info(f'Following album from track {self.response["name"]}: {self.response["album"]["name"]}')
         SpotifyRequestFactory.request_url(
             url=self.response["album"]["href"],
-            depth_of_search=(self.depth_of_search - 1)
+            depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id
         )
 
         for artist in self.response["artists"]:
             logger.info(f'Following artist from track {self.response["name"]}: {artist["name"]}')
             SpotifyRequestFactory.request_url(
                 url=artist["href"],
-                depth_of_search=(self.depth_of_search - 1)
+                depth_of_search=(self.depth_of_search - 1),
+                user_id=self.user_id
             )
 
     def write_to_sqlite(self):

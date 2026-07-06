@@ -2,16 +2,24 @@
 uses, with a failure-injection control plane.
 
 Endpoints (api.spotify.com facade):
-  GET  /v1/me/tracks?offset=&limit=     paginated saved tracks (self-referential next)
+  GET  /v1/me/tracks?offset=&limit=     paginated saved tracks (self-referential next;
+                                        answered per Authorization bearer — plan 06)
+  GET  /v1/me                           current user profile (per bearer — plan 06)
   GET  /v1/{tracks,albums,artists}/{id} single resource (404 if unknown)
   GET  /v1/{tracks,albums,artists}?ids= batch (null for unknown ids)
   GET  /v1/me/player                    playback state (204 if none; see catalog player_*)
 Auth (accounts.spotify.com facade):
-  POST /api/token                       fake token (authorization_code / refresh_token)
+  POST /api/token                       fake token (authorization_code / refresh_token);
+                                        mints PER-USER tokens (plan 06): the _control
+                                        token_user knob selects the user for code
+                                        exchanges, refresh grants derive the user from
+                                        the submitted refresh token
   GET  /authorize                       redirect to the callback with a fake code
+                                        (reflects the OAuth state param)
 Control plane:
-  POST /_control/config                 inject failures (see FailureInjectionMiddleware)
-  POST /_control/reset                  clear injection
+  POST /_control/config                 inject failures (see FailureInjectionMiddleware),
+                                        player_* keys, token_user knob
+  POST /_control/reset                  clear injection + player/playlist/token state
   GET  /_control/health                 200 (compose healthcheck)
 """
 import json
@@ -59,7 +67,10 @@ class LikedSongsResource:
     def on_get(self, req, resp):
         offset = req.get_param_as_int("offset", default=0)
         limit = req.get_param_as_int("limit", default=20)
-        resp.media = catalog.liked_songs_page(offset, limit)
+        # Plan 06: /v1/me/* answers per the Authorization bearer (absent or
+        # unknown bearer -> the primary user, the pre-multiplayer behavior).
+        user_id = catalog.user_from_bearer(req.auth)
+        resp.media = catalog.liked_songs_page(offset, limit, user_id=user_id)
 
 
 class SingleResource:
@@ -96,8 +107,17 @@ class TokenResource:
             return
 
         form = req.get_media() if req.content_length else {}
+        # Plan 06 T7: mint PER-USER tokens. An authorization_code exchange
+        # mints for the user selected by the /_control token_user knob
+        # (default: the primary user -> the original literal token strings);
+        # a refresh grant derives the user from the submitted refresh token,
+        # like the real endpoint (a refresh token is user-bound).
+        if form.get("grant_type") == "refresh_token":
+            user_id = catalog.user_from_token(form.get("refresh_token"))
+        else:
+            user_id = catalog.token_exchange_user()
         resp.media = {
-            "access_token": "mock-access-token",
+            "access_token": catalog.access_token_for(user_id),
             "token_type": "Bearer",
             "scope": "user-library-read",
             "expires_in": 3600,
@@ -105,13 +125,17 @@ class TokenResource:
         # Spotify includes a refresh_token on the initial code exchange but
         # commonly omits it when the grant is itself a refresh.
         if form.get("grant_type") != "refresh_token":
-            resp.media["refresh_token"] = "mock-refresh-token"
+            resp.media["refresh_token"] = catalog.refresh_token_for(user_id)
 
 
 class AuthorizeResource:
     def on_get(self, req, resp):
         redirect_uri = req.get_param("redirect_uri", default="http://127.0.0.1:8000/callback")
-        raise falcon.HTTPSeeOther(f"{redirect_uri}?code=mock-auth-code")
+        # Reflect the OAuth state param like the real authorize endpoint —
+        # plan 06 T4's CSRF round-trip depends on it coming back verbatim.
+        state = req.get_param("state")
+        suffix = f"&state={state}" if state else ""
+        raise falcon.HTTPSeeOther(f"{redirect_uri}?code=mock-auth-code{suffix}")
 
 
 class ControlConfigResource:
@@ -121,7 +145,8 @@ class ControlConfigResource:
             if key in cfg:
                 INJECTION[key] = cfg[key]
         player = catalog.configure_player(cfg)  # player_* keys (plan 04 phase B)
-        resp.media = {**INJECTION, **player}
+        token = catalog.configure_token_exchange(cfg)  # token_user knob (plan 06)
+        resp.media = {**INJECTION, **player, **token}
 
 
 class ControlResetResource:
@@ -129,6 +154,7 @@ class ControlResetResource:
         INJECTION.update(_default_injection())
         catalog.reset_player()
         catalog.reset_playlists()  # plan 08: playlist CRUD state
+        catalog.reset_token_exchange()  # plan 06: back to the primary user
         resp.media = dict(INJECTION)
 
 
@@ -188,10 +214,12 @@ MAX_PLAYLIST_ITEMS_PER_CALL = 100
 
 
 class UserProfileResource:
-    """GET /v1/me (plan 08): the fake current user for playlist-create calls."""
+    """GET /v1/me (plan 08): the fake current user for playlist-create calls.
+    Answered per the Authorization bearer since plan 06 (no/unknown bearer ->
+    the primary user)."""
 
     def on_get(self, req, resp):
-        resp.media = catalog.current_user()
+        resp.media = catalog.current_user(catalog.user_from_bearer(req.auth))
 
 
 def _playlist_or_404(playlist_id):

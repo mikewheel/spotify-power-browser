@@ -17,16 +17,19 @@ import application.api_call_engine as engine
 @pytest.fixture
 def engine_env(mock_base, monkeypatch):
     published = []
-    monkeypatch.setattr(engine, "SPOTIFY_API_TOKEN", "mock-token")
+    # Seed the (legacy, user_id=None) slot of the per-user token cache.
+    monkeypatch.setitem(engine.TOKEN_CACHE, None, "mock-token")
     monkeypatch.setattr(engine, "connect_to_rabbitmq_exchange", lambda **kw: (MagicMock(), MagicMock()))
     monkeypatch.setattr(engine, "publish_message_to_exchange", lambda **kw: published.append(kw))
     monkeypatch.setattr(engine, "sleep", lambda *_: None)
     monkeypatch.setattr(engine.SpotifyRequestFactory, "request_url",
-                        staticmethod(lambda url, depth_of_search=0: None))
+                        staticmethod(lambda url, depth_of_search=0, user_id=None: None))
     return published
 
 
 def _call(url, depth=0):
+    # Deliberately NO user_id key: pins the pre-multiplayer envelope shape
+    # (plan 06 back-compat with in-flight messages).
     engine.make_spotify_api_call(None, None, None, json.dumps({"request_url": url, "depth_of_search": depth}))
 
 
@@ -39,12 +42,13 @@ def test_429_is_retried_with_capped_backoff_then_succeeds(engine_env, mock_base)
 
 def test_401_triggers_refresh_then_retries(engine_env, mock_base, monkeypatch):
     refreshed = []
-    monkeypatch.setattr(engine, "refresh_spotify_auth", lambda: refreshed.append(True))
-    monkeypatch.setattr(engine, "load_api_token", lambda: "refreshed-token")
+    monkeypatch.setattr(engine, "refresh_spotify_auth",
+                        lambda user_id=None: refreshed.append(user_id))
+    monkeypatch.setattr(engine, "load_api_token", lambda user_id=None: "refreshed-token")
     requests.post(f"{mock_base}/_control/config", json={"fail_next_n": 1, "fail_status": 401})
     _call(f"{mock_base}/v1/tracks/trk000000")     # 401 once -> refresh + reload -> 200
-    assert refreshed == [True]
-    assert engine.SPOTIFY_API_TOKEN == "refreshed-token"
+    assert refreshed == [None]                    # legacy identity refreshed
+    assert engine.TOKEN_CACHE[None] == "refreshed-token"
     assert len(engine_env) >= 1
 
 
@@ -60,6 +64,31 @@ def test_500_exhaustion_gives_up_and_rolls_back_dedup(engine_env, mock_base, red
     assert url_is_new(url, 0) is True              # mark it crawled (as request_url would)
     with pytest.raises(requests.exceptions.HTTPError):
         _call(url)                                  # 5x 500 -> give up + unmark + raise
+    assert url_is_new(url, 0) is True              # True again => it was rolled back
+
+
+def test_401_refresh_failure_rolls_back_dedup_before_raising(engine_env, mock_base,
+                                                             redis_client, monkeypatch):
+    # A 401 whose refresh FAILS (revoked grant -> Spotify 400 invalid_grant,
+    # or a deleted token file) is a give-up for this message: with auto_ack
+    # there's no redelivery, so — exactly like the 429/500 give-up paths —
+    # the dedup mark must be rolled back before the exception propagates, or
+    # the URL (and its whole pagination chain) is unreachable forever even
+    # after the user re-authorizes.
+    from application.cache.redis_client import url_is_new, reset_crawled_set
+    reset_crawled_set()
+
+    def broken_refresh(user_id=None):
+        raise requests.exceptions.HTTPError("400 invalid_grant (refresh token revoked)")
+    monkeypatch.setattr(engine, "refresh_spotify_auth", broken_refresh)
+
+    url = f"{mock_base}/v1/tracks/trk000007"
+    requests.post(f"{mock_base}/_control/config",
+                  json={"fail_url_substring": "trk000007", "fail_status": 401})
+
+    assert url_is_new(url, 0) is True              # mark it crawled (as request_url would)
+    with pytest.raises(requests.exceptions.HTTPError):
+        _call(url)                                  # 401 -> refresh raises -> give up
     assert url_is_new(url, 0) is True              # True again => it was rolled back
 
 

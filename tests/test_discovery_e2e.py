@@ -45,6 +45,8 @@ PURGE_MOCK_NODES = (
     "DETACH DELETE n"
 )
 PURGE_MOCK_GENRES = "MATCH (g:Genre) WHERE g.name =~ 'genre-[0-9]' DETACH DELETE g"
+# plan 06: the liked-songs seeding writes a (:User {id: 'mockuser'}) anchor
+PURGE_MOCK_USERS = "MATCH (u:User) WHERE u.id IN ['mockuser', 'mockuser2'] DETACH DELETE u"
 
 FLAG = "application.response_handlers.albums.several_albums.CRAWL_ARTIST_DISCOGRAPHIES"
 
@@ -128,6 +130,7 @@ def graph(neo4j_driver):
         neo4j_driver.execute_query("MATCH (n) WHERE n.uri CONTAINS 'DISCTEST' DETACH DELETE n")
         neo4j_driver.execute_query(PURGE_MOCK_NODES)
         neo4j_driver.execute_query(PURGE_MOCK_GENRES)
+        neo4j_driver.execute_query(PURGE_MOCK_USERS)
     purge()
     yield neo4j_driver
     purge()
@@ -285,11 +288,15 @@ def crawl(mock_base, graph, redis_client, monkeypatch):
 
 
 def _seed_liked_songs(mock_base, graph):
-    """Write the mock liked-songs catalog to Neo4j (the affinity source)."""
+    """Write the mock liked-songs catalog to Neo4j (the affinity source).
+    Seeded WITH a user (plan 06): 'liked' is now the (:User)-[:LIKED]
+    relationship the seed worklist query traverses."""
     url = f"{mock_base}/v1/me/tracks?offset=0&limit=50"
     while url:
         page = requests.get(url).json()
-        LikedSongsPlaylistResponseHandler(url, 0, page).write_to_neo4j(driver=graph)
+        LikedSongsPlaylistResponseHandler(
+            url, 0, page, user_id="mockuser"
+        ).write_to_neo4j(driver=graph)
         url = page["next"]
 
 
@@ -303,7 +310,8 @@ def test_discography_crawl_enriches_frontier_without_recursion(crawl):
     # --- the seeder's worklist query finds the liked artists (T4) ---
     with open(DISCOVERY_QUERIES_DIR / "fetch_discography_seed_artist_ids.cypher") as f:
         worklist_query = f.read()
-    records, _, _ = crawl.graph.execute_query(worklist_query, affinity_min=3)
+    # user_id=None -> 'any user' (the legacy factory default)
+    records, _, _ = crawl.graph.execute_query(worklist_query, affinity_min=3, user_id=None)
     worklist = [record["id"] for record in records]
     assert set(MOCK_ARTIST_IDS) <= set(worklist)
 
@@ -357,19 +365,21 @@ def test_discography_crawl_enriches_frontier_without_recursion(crawl):
         pack = [q.strip() for q in f.read().split(";") if q.strip()]
     affinity_query, track_altitude_query = pack[0], pack[1]
 
+    # user_id=None -> 'any user' (plan 06 rewrite of the pack)
     recs, _, _ = crawl.graph.execute_query(
-        track_altitude_query, max_popularity=40, min_bridges=2)
+        track_altitude_query, max_popularity=40, min_bridges=2, user_id=None)
     frontier_rows = [r for r in recs if r["artist"].startswith("Frontier Collaborator")]
     assert frontier_rows, "the ranked frontier must surface the mock's collaborators"
     assert all(r["bridges"] >= 2 and r["popularity"] <= 40 for r in frontier_rows)
     assert all(r["via"] for r in frontier_rows)  # explainability: bridged via whom
 
-    recs, _, _ = crawl.graph.execute_query(affinity_query)
+    recs, _, _ = crawl.graph.execute_query(affinity_query, user_id=None)
     counts = [r["qualifying_artists"] for r in recs]
     assert len(counts) == 20 and counts == sorted(counts, reverse=True)
 
     # --- frontier artists never qualify as seeds themselves (T4 gating) ---
-    records, _, _ = crawl.graph.execute_query(worklist_query, affinity_min=3)
+    # user_id=None -> 'any user' (the legacy factory default)
+    records, _, _ = crawl.graph.execute_query(worklist_query, affinity_min=3, user_id=None)
     assert not any(record["id"].startswith("fra") for record in records)
 
     # --- dedup: a second run re-publishes nothing (T8) ---

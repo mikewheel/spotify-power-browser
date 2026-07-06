@@ -34,3 +34,12 @@ REQUIRE section.id IS UNIQUE;
 CREATE CONSTRAINT managed_playlist_spotify_id_uniqueness IF NOT EXISTS
 FOR (playlist:ManagedPlaylist)
 REQUIRE playlist.spotify_id IS UNIQUE;
+
+// --- 06 multiplayer: (:User) ownership layer ---
+// User.id is the Spotify user id (GET /v1/me "id") — every per-user
+// relationship ((:User)-[:LIKED]->, -[:HAS_MANAGED]->, later -[:FOLLOWS]->
+// and plan 02's -[:DID]->(:Play)) anchors on it. No literal semicolons in
+// these comments: tooling splits this file on them.
+CREATE CONSTRAINT user_id_uniqueness IF NOT EXISTS
+FOR (user:User)
+REQUIRE user.id IS UNIQUE;

@@ -60,12 +60,16 @@ on a token healthcheck (patient: ~1h start_period). `api_call_engine` and
 ## 3. Drive the OAuth flow — HUMAN IN THE LOOP
 
 You (the agent) **cannot** complete the Spotify login — hand it to the human.
-- Confirm the auth page serves: `curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/login` (expect `301`).
+- Confirm the auth page serves: `curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/login` (expect `200` — since plan 06 it's the "add a user" page; `/login/start` is what 301-redirects to Spotify).
 - Open a browser to **http://127.0.0.1:8000/login** (use the Chrome DevTools MCP
-  or Claude-in-Chrome). It redirects to Spotify's login/consent.
+  or Claude-in-Chrome), click **Add a user** — it redirects to Spotify's
+  login/consent (with a single-use CSRF `state` nonce minted into Redis).
 - **Pause and ask the human** to log into Spotify and click **Agree**. Then the
-  callback writes tokens to `secrets/`, the healthcheck flips healthy, and
-  Compose auto-starts the crawl.
+  callback derives their user id from `/v1/me`, files tokens under
+  `secrets/users/<id>/` (the FIRST user also mirrors to the legacy
+  `secrets/spotify_api_token.secret`), the healthcheck flips healthy, and
+  Compose auto-starts the crawl. Additional friends: same page, once each
+  (see docs/multiplayer-runbook.md for the dashboard allowlist).
 - To run a fresh crawl as it starts: bring up with `RESET_CRAWL=true docker compose up`.
 
 Detect completion:

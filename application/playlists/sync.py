@@ -389,11 +389,16 @@ def main(argv=None):
                         help="adjacent-discoveries: popularity cap on candidates")
     parser.add_argument("--min-bridges", type=int, default=DEFAULT_MIN_BRIDGES,
                         help="adjacent-discoveries: minimum independent collaborator paths")
+    parser.add_argument("--user", default=None, metavar="SPOTIFY_USER_ID",
+                        help="scope 'liked' to one user's (:User)-[:LIKED] taste "
+                             "(plan 06); forks a per-user managed playlist. "
+                             "Default: any user (the legacy single-user behavior).")
     args = parser.parse_args(argv)
 
     spec = build_generator(
         args.generator, args.generator_args,
         max_popularity=args.max_popularity, min_bridges=args.min_bridges,
+        user_id=args.user,
     )
 
     driver = connect_to_neo4j(NEO4J_CREDENTIALS_FILE)

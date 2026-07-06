@@ -65,6 +65,7 @@ class GetSeveralAlbumsResponseHandler(SeveralResourcesResponseHandler):
                     SpotifyRequestFactory.request_url(
                         url=next_tracks_url,
                         depth_of_search=self.depth_of_search,
+                        user_id=self.user_id,
                     )
 
         if self.depth_of_search <= 0:
@@ -89,4 +90,5 @@ class GetSeveralAlbumsResponseHandler(SeveralResourcesResponseHandler):
             "artists",
             artist_ids,
             depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id,
         )

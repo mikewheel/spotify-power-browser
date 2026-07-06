@@ -10,14 +10,20 @@
 // This file is a documented query pack (not executed by the pipeline).
 // Queries are separated by semicolons and take $-parameters. Keep literal
 // semicolons out of the comments — tooling splits on them.
+//
+// Multiplayer (plan 06 T2): 1a/1b take $user_id and traverse
+// (:User)-[:LIKED] (migration 0001) — null = "any user". 2a/2b were already
+// forward-written against (:User) with the $me param (plan 02's naming) —
+// both conventions resolve to the same (:User {id}) anchor.
 
 
 // ---------------------------------------------------------------------------
 // 1a. Adjacent-artist discovery (plan 01 deliverable) — TRACK altitude.
 // A collab re-released on five editions counts five times: inflated.
-// Params: $max_popularity (e.g. 40), $min_bridges (e.g. 3)
+// Params: $user_id, $max_popularity (e.g. 40), $min_bridges (e.g. 3)
 // ---------------------------------------------------------------------------
-MATCH (mine:Artist)-[:CREATED]->(:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(:Track)<-[:CREATED]-(mine:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH collect(DISTINCT mine) AS my_artists
 UNWIND my_artists AS m
 MATCH (m)-[:CREATED]->(t:Track)<-[:CREATED]-(cand:Artist)
@@ -35,9 +41,10 @@ ORDER BY bridges DESC, cand.popularity ASC LIMIT 50
 // Collabs are counted as DISTINCT Songs, so a single collab spread across a
 // single, an album cut, and a deluxe re-release is one shared song, not
 // three. shared_songs ranks candidates by real overlap depth.
-// Params: $max_popularity, $min_bridges
+// Params: $user_id, $max_popularity, $min_bridges
 // ---------------------------------------------------------------------------
-MATCH (mine:Artist)-[:CREATED]->(:Track {liked_songs: true})
+MATCH (u:User)-[:LIKED]->(:Track)<-[:CREATED]-(mine:Artist)
+WHERE ($user_id IS NULL OR u.id = $user_id)
 WITH collect(DISTINCT mine) AS my_artists
 UNWIND my_artists AS m
 MATCH (m)-[:CREATED]->(t:Track)<-[:CREATED]-(cand:Artist)

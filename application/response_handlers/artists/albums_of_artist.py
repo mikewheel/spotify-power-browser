@@ -30,8 +30,8 @@ class GetAlbumsOfArtistResponseHandler(BaseResponseHandler):
     URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/artists/{{artist_id}}/albums"
     DISK_LOCATION = DATA_DIR / "responses" / "albums_of_artist"
 
-    def __init__(self, request_url, depth_of_search, response):
-        super().__init__(request_url, depth_of_search, response)
+    def __init__(self, request_url, depth_of_search, response, user_id=None):
+        super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
     @property
     def artist_id(self):
@@ -73,6 +73,7 @@ class GetAlbumsOfArtistResponseHandler(BaseResponseHandler):
             "albums",
             album_ids,
             depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id,
         )
 
     def write_to_sqlite(self):

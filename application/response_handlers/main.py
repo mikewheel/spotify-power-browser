@@ -113,18 +113,23 @@ class SpotifyResponseController:
         request_url = msg["request_url"]
         depth_of_search = msg["depth_of_search"]
         response = msg["response"]
+        # Plan 06 T5: thread the envelope's user through to the handler.
+        # .get(): pre-multiplayer in-flight messages carry no user_id -> None,
+        # which every handler treats as the legacy single-user behavior.
+        user_id = msg.get("user_id")
 
         response_handler = SpotifyResponseController.resolve_handler(request_url)
+        handler = response_handler(request_url, depth_of_search, response, user_id=user_id)
 
         if RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_DISK.value:
-            response_handler(request_url, depth_of_search, response).write_to_disk()
+            handler.write_to_disk()
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_SQLITE.value:
-            response_handler(request_url, depth_of_search, response).write_to_sqlite()
+            handler.write_to_sqlite()
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_WRITE_TO_NEO4J.value:
             global neo4j_driver
-            response_handler(request_url, depth_of_search, response).write_to_neo4j(driver=neo4j_driver)
+            handler.write_to_neo4j(driver=neo4j_driver)
         elif RESPONSE_HANDLER_ACTION == ResponsesExchange.ROUTING_KEY_FOLLOW_LINKS.value:
-            response_handler(request_url, depth_of_search, response).follow_links()
+            handler.follow_links()
         else:
             raise ValueError(f'Unrecognized response handler action: {RESPONSE_HANDLER_ACTION}')
 

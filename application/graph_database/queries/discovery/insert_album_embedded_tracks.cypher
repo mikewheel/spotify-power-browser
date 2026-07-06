@@ -7,8 +7,10 @@
 // Simplified track objects have no external_ids/album/popularity fields, so
 // only what's present is set; the coalesce(payload, existing) ON MATCH pattern
 // (plan 03) keeps previously stored enrichment intact. Nodes created here are
-// tagged crawl_source = 'discography' (liked-songs nodes carry liked_songs =
-// true; frontier nodes have neither liked_songs nor a liked crawl origin).
+// tagged crawl_source = 'discography' (liked tracks are the targets of
+// (:User)-[:LIKED] edges since plan 06 — legacy graphs also still carry the
+// deprecated liked_songs flag until migration 0002 runs — while frontier
+// nodes have crawl_source and no inbound taste edges).
 UNWIND $albums as album
 
 MATCH (al:Album {uri: album.uri})

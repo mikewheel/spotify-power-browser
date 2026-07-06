@@ -26,9 +26,11 @@ class GetSeveralTracksResponseHandler(SeveralResourcesResponseHandler):
             "albums",
             [track["album"]["id"] for track in self.items],
             depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id,
         )
         SpotifyRequestFactory.request_batch(
             "artists",
             [artist["id"] for track in self.items for artist in track["artists"]],
             depth_of_search=(self.depth_of_search - 1),
+            user_id=self.user_id,
         )

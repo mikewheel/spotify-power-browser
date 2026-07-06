@@ -23,7 +23,7 @@ def _capture_request_url(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_url",
-        staticmethod(lambda url, depth_of_search=0: calls.append((url, depth_of_search))),
+        staticmethod(lambda url, depth_of_search=0, user_id=None: calls.append((url, depth_of_search))),
     )
     return calls
 
@@ -32,7 +32,7 @@ def _capture_request_batch(monkeypatch):
     calls = []
     monkeypatch.setattr(
         "application.requests_factory.SpotifyRequestFactory.request_batch",
-        classmethod(lambda cls, rtype, ids, depth_of_search=0: calls.append((rtype, list(ids), depth_of_search))),
+        classmethod(lambda cls, rtype, ids, depth_of_search=0, user_id=None: calls.append((rtype, list(ids), depth_of_search))),
     )
     return calls
 
@@ -302,10 +302,11 @@ def test_seeder_publishes_albums_list_urls_at_seed_depth(monkeypatch):
     ]
     # every seed carries the documented discography depth
     assert all(depth == SpotifyRequestFactory.DISCOGRAPHY_SEED_DEPTH for _, depth in calls)
-    # the worklist query was parameterized with the configured threshold
+    # the worklist query was parameterized with the configured threshold, and
+    # (plan 06) traverses (:User)-[:LIKED] with a null user scope by default
     (query, kwargs), = driver.queries
-    assert "liked_songs" in query
-    assert kwargs == {"affinity_min": 3}
+    assert ":LIKED]" in query and "$user_id" in query
+    assert kwargs == {"affinity_min": 3, "user_id": None}
 
 
 def test_seed_depth_reaches_the_frontier_sweep_and_no_further():

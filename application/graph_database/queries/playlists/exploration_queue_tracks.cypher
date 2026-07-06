@@ -4,6 +4,9 @@
 // plan 02's Play/LISTENED_TO history lands, "liked" is the best available
 // proxy for "heard" — unify with plan 02's completeness model then.
 //
+// Multiplayer (plan 06 T2): "liked" is the (:User)-[:LIKED] relationship
+// (migration 0001), scoped by $user_id (null = liked by any user).
+//
 // Artist.popularity plays no filtering role here, so a null value degrades to
 // "unknown -> include, flag" via popularity_unknown. Track order within an
 // album falls back to Track.id (track_number is not persisted on Track nodes).
@@ -12,7 +15,8 @@ WHERE toLower(a.name) = toLower($artist_name)
 
 MATCH (a)-[:CREATED]->(al:Album)
 WHERE NOT EXISTS {
-    MATCH (al)-[:CONTAINS]->(:Track {liked_songs: true})
+    MATCH (u:User)-[:LIKED]->(:Track)<-[:CONTAINS]-(al)
+    WHERE ($user_id IS NULL OR u.id = $user_id)
 }
 
 MATCH (al)-[:CONTAINS]->(t:Track)
