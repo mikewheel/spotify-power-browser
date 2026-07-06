@@ -56,6 +56,16 @@ services:
       - "./data:/src/data"
     ports:
       - "8000:8000"
+    # Plan 06 T4: /login/start mints single-use OAuth state nonces into Redis
+    # and /callback consumes them, so this service now needs the cache.
+    depends_on:
+      redis:
+        condition: service_healthy
+        restart: true
+    links:
+      - redis
+    environment:
+      REDIS_HOSTNAME: ${REDIS_HOSTNAME:-redis}
     command: python3 application/spotify_authentication/api_authorization_web_service.py
     healthcheck:
       # Healthy only once the OAuth flow has written an access token. This
@@ -64,6 +74,10 @@ services:
       # container in "starting" (not "unhealthy") while it waits for a human, so
       # `docker compose up` won't abort the gated services if authorization takes
       # a while; the first successful probe flips it healthy immediately.
+      #
+      # Plan 06 keeps this file as the PRIMARY user's mirror (token_store.py):
+      # the first account to authorize writes both secrets/users/<id>/ and this
+      # legacy path, so multi-user auth does not break the one-command `up`.
       test: ["CMD-SHELL", "test -s /src/secrets/spotify_api_token.secret"]
       interval: 5s
       timeout: 5s
