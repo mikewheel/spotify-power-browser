@@ -128,6 +128,7 @@ class ControlResetResource:
     def on_post(self, req, resp):
         INJECTION.update(_default_injection())
         catalog.reset_player()
+        catalog.reset_playlists()  # plan 08: playlist CRUD state
         resp.media = dict(INJECTION)
 
 
@@ -179,6 +180,105 @@ class AlbumTracksResource:
         resp.media = page
 
 
+# --- plan 08 playlist write-back (appended) -------------------------------
+
+# Spotify's cap on items per add/remove call — enforced for fidelity so the
+# sync module's chunking is actually load-bearing in tests.
+MAX_PLAYLIST_ITEMS_PER_CALL = 100
+
+
+class UserProfileResource:
+    """GET /v1/me (plan 08): the fake current user for playlist-create calls."""
+
+    def on_get(self, req, resp):
+        resp.media = catalog.current_user()
+
+
+def _playlist_or_404(playlist_id):
+    obj = catalog.playlist_object(playlist_id)
+    if obj is None:
+        raise falcon.HTTPNotFound()
+    return obj
+
+
+def _validated_track_ids(uris):
+    """Enforce the 100-cap and resolve URIs to catalog track ids (400 on
+    malformed/unknown, like Spotify)."""
+    if len(uris) > MAX_PLAYLIST_ITEMS_PER_CALL:
+        raise falcon.HTTPBadRequest(
+            description=f"You can add a maximum of {MAX_PLAYLIST_ITEMS_PER_CALL} tracks per request."
+        )
+    track_ids = []
+    for uri in uris:
+        track_id = catalog.track_id_from_uri(uri)
+        if track_id is None:
+            raise falcon.HTTPBadRequest(description=f"Unsupported URL / URI: {uri}")
+        track_ids.append(track_id)
+    return track_ids
+
+
+class PlaylistCreationResource:
+    """POST /v1/users/{user_id}/playlists (plan 08): create an empty playlist."""
+
+    def on_post(self, req, resp, user_id):
+        body = req.get_media() if req.content_length else {}
+        name = body.get("name")
+        if not name:
+            raise falcon.HTTPBadRequest(description="Missing required field: name")
+        resp.status = falcon.HTTP_201
+        resp.media = catalog.create_playlist(
+            owner_id=user_id,
+            name=name,
+            description=body.get("description", ""),
+            public=body.get("public", False),
+        )
+
+
+class PlaylistResource:
+    """GET /v1/playlists/{playlist_id} + PUT to change details (plan 08 —
+    the sync module re-stamps the description on every applied sync)."""
+
+    def on_get(self, req, resp, playlist_id):
+        resp.media = _playlist_or_404(playlist_id)
+
+    def on_put(self, req, resp, playlist_id):
+        _playlist_or_404(playlist_id)
+        body = req.get_media() if req.content_length else {}
+        catalog.change_playlist_details(
+            playlist_id, name=body.get("name"), description=body.get("description")
+        )
+
+
+class PlaylistTracksResource:
+    """GET (paginated) / POST (add) / DELETE (remove) /v1/playlists/{id}/tracks
+    with Spotify's 100-items-per-call cap (plan 08)."""
+
+    def on_get(self, req, resp, playlist_id):
+        _playlist_or_404(playlist_id)
+        offset = req.get_param_as_int("offset", default=0)
+        limit = req.get_param_as_int("limit", default=100)
+        resp.media = catalog.playlist_tracks_page(playlist_id, offset, limit)
+
+    def on_post(self, req, resp, playlist_id):
+        _playlist_or_404(playlist_id)
+        body = req.get_media() if req.content_length else {}
+        track_ids = _validated_track_ids(body.get("uris") or [])
+        snapshot_id = catalog.add_playlist_tracks(
+            playlist_id, track_ids, position=body.get("position")
+        )
+        resp.status = falcon.HTTP_201
+        resp.media = {"snapshot_id": snapshot_id}
+
+    def on_delete(self, req, resp, playlist_id):
+        _playlist_or_404(playlist_id)
+        body = req.get_media() if req.content_length else {}
+        uris = [t.get("uri") for t in (body.get("tracks") or [])]
+        track_ids = _validated_track_ids(uris)
+        snapshot_id = catalog.remove_playlist_tracks(playlist_id, track_ids)
+        resp.media = {"snapshot_id": snapshot_id}
+
+
+
 def create_app():
     app = falcon.App(middleware=[FailureInjectionMiddleware()])
     app.add_route("/v1/me/tracks", LikedSongsResource())
@@ -194,6 +294,11 @@ def create_app():
     # Plan 01 adjacent-artist discovery: discography sub-resources.
     app.add_route("/v1/artists/{resource_id}/albums", ArtistAlbumsResource())
     app.add_route("/v1/albums/{resource_id}/tracks", AlbumTracksResource())
+    # --- plan 08 playlist write-back (appended) ---
+    app.add_route("/v1/me", UserProfileResource())
+    app.add_route("/v1/users/{user_id}/playlists", PlaylistCreationResource())
+    app.add_route("/v1/playlists/{playlist_id}", PlaylistResource())
+    app.add_route("/v1/playlists/{playlist_id}/tracks", PlaylistTracksResource())
     return app
 
 
