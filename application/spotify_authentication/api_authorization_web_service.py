@@ -182,11 +182,39 @@ class SpotifyAuthCodeResource:
 
         # Identity is DERIVED, not assumed: ask the API whose token this is,
         # then file it under that user id (plan 06 T4).
-        me = requests.get(
-            f'{SPOTIFY_API_BASE_URL}/v1/me',
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        me.raise_for_status()
+        me = None
+        try:
+            me = requests.get(
+                f'{SPOTIFY_API_BASE_URL}/v1/me',
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            me.raise_for_status()
+        except requests.RequestException:
+            # The primary onboarding failure (dev-mode allowlist not yet
+            # propagated -> 403, or a transient 5xx). The auth code is burned
+            # and the state consumed, so the whole login must be redone — tell
+            # the human that, like the responder's other two failure paths,
+            # instead of dropping an unhandled traceback as a bare 500.
+            # DELIBERATELY nothing is persisted: without /v1/me we don't know
+            # WHOSE tokens these are, and filing them under a guess is worse
+            # than one more login round-trip.
+            detail = (f"HTTP {me.status_code}" if me is not None
+                      else "a connection error")
+            print(f'GET /v1/me failed after the token exchange ({detail}); '
+                  f'discarding the issued tokens and asking the user to retry.')
+            resp.status = falcon.HTTP_502
+            resp.content_type = "text/html"
+            resp.text = _page(
+                "Login almost worked",
+                f'<p>Spotify accepted the login, but asking who you are '
+                f'(<code>GET /v1/me</code>) failed with {html.escape(detail)}. '
+                f'<strong>No tokens were saved.</strong></p>'
+                f'<p>If this app is in development mode, check that this '
+                f"account's email is allowlisted in the Spotify dashboard "
+                f'(docs/multiplayer-runbook.md &sect;1), then retry from '
+                f'<a href="/login">the login page</a>.</p>',
+            )
+            return
         me = me.json()
         user_id = me["id"]
         display_name = me.get("display_name") or user_id

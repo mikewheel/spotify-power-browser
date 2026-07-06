@@ -156,6 +156,34 @@ def test_callback_files_tokens_under_the_derived_user_id(svc, client, mock_base,
     assert (tmp / "spotify_api_token.secret").read_text() == "mock-access-token"
 
 
+def test_callback_renders_a_handled_page_when_the_identity_call_fails(svc, client,
+                                                                      mock_base, monkeypatch):
+    # The onboarding failure mode: the token exchange succeeds but GET /v1/me
+    # fails (dev-mode allowlist not propagated -> 403, or a transient 5xx).
+    # The auth code is burned and the state consumed, so the human MUST be
+    # told to retry from /login — a handled 4xx/5xx page, never a bare 500
+    # traceback — and no tokens may be persisted anywhere (without /v1/me we
+    # don't know whose they are).
+    import requests
+
+    monkeypatch.setattr(svc, "SPOTIFY_ACCOUNTS_BASE_URL", mock_base)
+    monkeypatch.setattr(svc, "SPOTIFY_API_BASE_URL", mock_base)
+    requests.post(f"{mock_base}/_control/config",
+                  json={"fail_url_substring": "/v1/me", "fail_status": 500})
+
+    resp = _authorize(svc, client, state="nonce-me-fails")
+
+    assert 400 <= resp.status_code < 600           # an error, but a HANDLED one
+    assert "No tokens were saved" in resp.text     # our page, not a traceback
+    assert 'href="/login"' in resp.text            # the retry pointer
+
+    tmp = svc._test_tmp
+    users_dir = tmp / "users"
+    assert not users_dir.exists() or not any(p.is_dir() for p in users_dir.iterdir())
+    assert not (tmp / "spotify_api_token.secret").exists()
+    assert not (tmp / "spotify_refresh_token.secret").exists()
+
+
 def test_second_user_files_separately_and_primary_is_kept(svc, client, mock_base, monkeypatch):
     import requests
 
