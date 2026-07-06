@@ -182,6 +182,34 @@ def test_remix_without_resolvable_parent_has_no_edge():
     assert member_of(result, "t1").kind == "remix"
 
 
+def test_remix_of_internal_hyphen_title_emits_the_edge():
+    # "Re-Wired" contains an internal hyphen: the base of the hyphenated
+    # remix marker must be the FULL title, or the parent is never resolved.
+    result = cluster_tracks([
+        rec("t1", "Re-Wired", isrc="ISRC1", duration_ms=183000),
+        rec("t2", "Re-Wired - Kasabian Remix", isrc="ISRC2", duration_ms=190000),
+    ])
+    assert len(result.clusters) == 2
+    assert member_of(result, "t2").kind == "remix"
+    assert [
+        (e.remix_song_id, e.parent_song_id) for e in result.remix_edges
+    ] == [(cluster_of(result, "t2").song_id, cluster_of(result, "t1").song_id)]
+
+
+def test_remix_of_internal_hyphen_title_resolves_the_right_parent():
+    # A truncated base ("t" instead of "t shirt") would attach the remix to
+    # the WRONG sibling Song by the same artist.
+    result = cluster_tracks([
+        rec("t1", "T", isrc="ISRC1", duration_ms=100000),
+        rec("t2", "T-Shirt", isrc="ISRC2", duration_ms=150000),
+        rec("t3", "T-Shirt - Blondish Remix", isrc="ISRC3", duration_ms=151000),
+    ])
+    assert len(result.remix_edges) == 1
+    edge = result.remix_edges[0]
+    assert edge.remix_song_id == cluster_of(result, "t3").song_id
+    assert edge.parent_song_id == cluster_of(result, "t2").song_id  # T-Shirt, not T
+
+
 def test_two_copies_of_the_same_remix_merge_together():
     result = cluster_tracks([
         rec("t1", "Song (X Remix)", isrc="ISRC1"),

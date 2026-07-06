@@ -122,6 +122,29 @@ def test_hyphenated_remix_marker():
     assert result.kind == "remix"
 
 
+def test_hyphenated_remix_keeps_internal_hyphen_base_intact():
+    # The separator is the LAST " - "; the hyphen inside "Re-Wired" is part
+    # of the base title, not a marker boundary.
+    result = normalize("Re-Wired - Kasabian Remix")
+    assert result.base_text == "re wired"
+    assert result.remix_credit == "kasabian"
+    assert result.text == "re wired kasabian remix"
+    assert result.kind == "remix"
+
+
+def test_hyphenated_remix_anchors_at_the_last_separator():
+    # Multiple " - " separators: the base is the greedy prefix.
+    result = normalize("Song - Part 2 - X Remix")
+    assert result.base_text == "song part 2"
+    assert result.remix_credit == "x"
+
+
+def test_hyphenated_remix_credit_with_internal_hyphen_survives():
+    result = normalize("Umbrella - Jay-Z Remix")
+    assert result.base_text == "umbrella"
+    assert result.remix_credit == "jay-z"
+
+
 def test_bare_remix_marker_has_empty_credit():
     result = normalize("Blue Monday (Remix)")
     assert result.remix_credit == ""

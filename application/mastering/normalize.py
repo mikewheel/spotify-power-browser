@@ -53,9 +53,15 @@ _DECORATION_PATTERNS = [
 # Remix markers. The credit (possibly empty, e.g. "(Remix)") is extracted so
 # the marker survives normalization in a canonical form and REMIX_OF parents
 # can be resolved from base_text.
+#
+# The hyphen form anchors at the LAST whitespace-delimited " - " separator:
+# the greedy <base> pushes the match rightward, and requiring whitespace on
+# both sides keeps internal hyphens ("Re-Wired", "T-Shirt", "Jay-Z") inside
+# the base/credit instead of truncating the base at the first hyphen (which
+# missed the real REMIX_OF parent — or hit a wrong one).
 _REMIX_PATTERNS = [
-    re.compile(r"\s*[(\[]\s*([^()\[\]]*?)\s*remix\s*[)\]]\s*$"),
-    re.compile(r"\s*-\s*(.*?)\s*remix\s*$"),
+    re.compile(r"\s*[(\[]\s*(?P<credit>[^()\[\]]*?)\s*remix\s*[)\]]\s*$"),
+    re.compile(r"^(?P<base>.*\S)\s+-\s+(?P<credit>.*?)\s*remix\s*$"),
 ]
 
 # feat./featuring/with clauses — parenthesized anywhere-at-end, or a bare
@@ -135,8 +141,15 @@ def normalize(title, artist_names=()):
             for pattern in _REMIX_PATTERNS:
                 match = pattern.search(working)
                 if match:
-                    remix_credit = match.group(1).strip()
-                    working = working[:match.start()]
+                    remix_credit = match.group("credit").strip()
+                    groups = match.groupdict()
+                    # Hyphen form: the base is the greedy prefix before the
+                    # LAST " - " separator. Paren form: everything before the
+                    # end-anchored marker.
+                    if "base" in groups:
+                        working = groups["base"]
+                    else:
+                        working = working[:match.start()]
                     changed = True
                     break
             if changed:
