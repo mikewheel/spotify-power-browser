@@ -4,6 +4,7 @@ ephemeral localhost port (no compose network, no Neo4j — the store is the
 in-memory protocol double from application/playlists/model.py).
 """
 import json
+import logging
 import threading
 from wsgiref.simple_server import make_server
 
@@ -42,6 +43,18 @@ def mock_url():
 @pytest.fixture
 def client(mock_url):
     return SpotifyPlaylistClient(base_url=mock_url, token="mock-token")
+
+
+@pytest.fixture
+def sync_log(caplog):
+    """Capture the sync module's log records: its logger sets propagate=False
+    (application/loggers.py), so caplog's root-logger handler never sees them
+    unless attached to the module logger directly."""
+    sync_logger = logging.getLogger("application.playlists.sync")
+    caplog.set_level(logging.INFO)
+    sync_logger.addHandler(caplog.handler)
+    yield caplog
+    sync_logger.removeHandler(caplog.handler)
 
 
 def _ids(*numbers):
@@ -92,6 +105,37 @@ def test_compute_diff_reorder_requires_order_significance():
     reordered = compute_diff(_ids(1, 2, 3), _ids(3, 1, 2), order_significant=True)
     assert reordered.rewrite is True
     assert reordered.adds == [] and reordered.removes == []
+
+
+def test_compute_diff_forces_rewrite_when_current_duplicates_a_kept_id():
+    # Remove-by-URI removes ALL occurrences of an id, so a duplicate of a
+    # target-kept id can only be corrected by the full-rewrite path. The
+    # description stamp promises manual edits are overwritten, so these must
+    # never be reported as "in sync". Three traced scenarios:
+
+    # [A,A,B] -> [A,B]: adds/removes are empty; only rewrite can fix the dup.
+    dup_in_sync = compute_diff(_ids(1, 1, 2), _ids(1, 2), order_significant=True)
+    assert dup_in_sync.rewrite is True
+    assert not dup_in_sync.is_empty
+
+    # [A,A,B] -> [A,B,C]: append-only would leave [A,A,B,C] behind.
+    dup_with_add = compute_diff(_ids(1, 1, 2), _ids(1, 2, 3), order_significant=True)
+    assert dup_with_add.rewrite is True
+
+    # [A,B,A] -> [A]: removing B alone would leave [A,A].
+    dup_with_remove = compute_diff(_ids(1, 2, 1), _ids(1), order_significant=True)
+    assert dup_with_remove.rewrite is True
+
+    # Order-insignificant generators still promise deduped contents, so the
+    # duplicate forces the rewrite there too.
+    dup_unordered = compute_diff(_ids(1, 1, 2), _ids(1, 2), order_significant=False)
+    assert dup_unordered.rewrite is True
+
+    # Duplicates only of ids being REMOVED don't need a rewrite: remove-by-URI
+    # already drops every occurrence.
+    dup_removed = compute_diff(_ids(9, 9, 1), _ids(1), order_significant=True)
+    assert dup_removed.rewrite is False
+    assert dup_removed.removes == _ids(9)
 
 
 def test_params_hash_is_stable_and_order_insensitive():
@@ -238,6 +282,39 @@ def test_reorder_rewrites_only_for_order_significant_generators(client, mock_url
     reordered = _sync(client, store, _ids(3, 1, 2), order_significant=True)
     assert reordered["diff"].rewrite is True
     assert client.get_playlist_track_ids(first["playlist_id"]) == _ids(3, 1, 2)
+
+
+def test_sync_overwrites_manual_duplicates_of_kept_tracks(client, mock_url, sync_log):
+    # The stamp promises "changes are overwritten": a duplicate added by hand
+    # in the Spotify app must be corrected on the next applied sync, not
+    # reported as in-sync forever.
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))
+    playlist_id = first["playlist_id"]
+    client.add_tracks(playlist_id, _ids(1))  # manual edit -> [1, 2, 1]
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2, 1)
+
+    result = _sync(client, store, _ids(1, 2))
+    assert not result["diff"].is_empty
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2)
+
+    # ...and stays in sync afterwards.
+    assert _sync(client, store, _ids(1, 2))["diff"].is_empty
+
+
+def test_sync_with_adds_also_corrects_duplicates_without_false_warning(client, mock_url, sync_log):
+    # current [1, 2, 1] -> target [1, 2, 3]: pre-fix this appended 3 only,
+    # left the duplicate in place, and logged a false "unplayable ids"
+    # warning because len(final) != len(target).
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))
+    playlist_id = first["playlist_id"]
+    client.add_tracks(playlist_id, _ids(1))  # manual edit -> [1, 2, 1]
+
+    sync_log.clear()
+    _sync(client, store, _ids(1, 2, 3))
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2, 3)
+    assert not any("unplayable" in record.message for record in sync_log.records)
 
 
 def test_401_refreshes_and_retries_once(mock_url):

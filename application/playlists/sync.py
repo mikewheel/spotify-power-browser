@@ -167,9 +167,11 @@ class SpotifyPlaylistClient:
 
 @dataclass
 class PlaylistDiff:
-    """What a sync would change. `rewrite` means the target ORDER cannot be
-    reached by removes + appends alone, so apply removes everything and
-    re-adds the target in order (order-significant generators only)."""
+    """What a sync would change. `rewrite` means the target cannot be reached
+    by removes + appends alone — the order is wrong (order-significant
+    generators only) or the playlist holds duplicate occurrences of a kept id
+    (any generator) — so apply removes everything and re-adds the target in
+    order."""
     adds: list = field(default_factory=list)
     removes: list = field(default_factory=list)
     rewrite: bool = False
@@ -192,7 +194,8 @@ class PlaylistDiff:
             lines.append(f"remove {len(self.removes)} track(s): {', '.join(self.removes[:10])}"
                          + (" ..." if len(self.removes) > 10 else ""))
         if self.rewrite:
-            lines.append(f"reorder: full rewrite of {len(self.target)} track(s) to match the generator order")
+            lines.append(f"full rewrite of {len(self.target)} track(s) to match the generator "
+                         f"(order and/or duplicate occurrences)")
         return lines
 
 
@@ -206,12 +209,22 @@ def compute_diff(current_ids, target_ids, order_significant):
 
     removes = _dedupe([i for i in current if i not in target_set])
     adds = [i for i in target if i not in current_set]
-    kept = [i for i in _dedupe(current) if i in target_set]
+    kept_occurrences = [i for i in current if i in target_set]
+    kept = _dedupe(kept_occurrences)
+
+    # Duplicate occurrences of a KEPT id (e.g. a manual edit in the Spotify
+    # app duplicated a target track) cannot be corrected by removes + appends:
+    # remove-by-URI drops ALL occurrences, and appending never removes. The
+    # description stamp promises manual changes are overwritten, so a dup
+    # forces the full-rewrite path regardless of order significance.
+    # (Duplicates of ids NOT in the target need no rewrite: remove-by-URI
+    # already removes every occurrence.)
+    kept_has_duplicates = len(kept_occurrences) != len(kept)
 
     # After removes + appends the playlist would read kept + adds; if the
     # generator is order-significant and that isn't the target order, only a
     # full rewrite realizes it (the API appends or removes-by-URI, nothing else).
-    rewrite = order_significant and (kept + adds) != target
+    rewrite = kept_has_duplicates or (order_significant and (kept + adds) != target)
 
     return PlaylistDiff(adds=adds, removes=removes, rewrite=rewrite,
                         target=target, current=current)
