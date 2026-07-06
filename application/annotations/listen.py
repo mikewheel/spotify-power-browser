@@ -50,6 +50,11 @@ SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
 
 NUDGE_STEP_MS = 500
 POLL_INTERVAL_SECONDS = 1.0
+# Transient poll failures back off exponentially from the poll interval up to
+# this cap; a 429's Retry-After is honored but also capped (a capture session
+# should keep breathing, and the next poll is cheap).
+POLL_BACKOFF_CAP_SECONDS = 30.0
+RETRY_AFTER_CAP_SECONDS = 60.0
 
 HOTKEYS_HELP = (
     "hotkeys: [n]ote  [c]ue  [s]ection  [u]ndo  [+/-] nudge 500ms  [q]uit"
@@ -93,11 +98,41 @@ class PlaybackTracker:
         self._next_orders = {}  # track_id -> next section order (seeded from the graph)
         self.quit_requested = False
 
+        self._poll_failures = 0
+        self.poll_backoff_seconds = 0.0  # extra wait the TTY loop applies before re-polling
+        self.poll_error = None  # short status-line description of the last failure
+
     # --- polling -----------------------------------------------------------
 
     def poll(self):
-        """Refresh playback state. Returns the payload, or None when idle."""
-        state = self.fetch_playback()
+        """Refresh playback state. Returns the payload, or None when idle OR
+        when the poll failed transiently.
+
+        A capture session must survive flaky HTTP: 429s (Retry-After honored,
+        capped), 5xx, timeouts, connection errors — all requests-level
+        failures are absorbed with bounded exponential backoff (surfaced via
+        poll_backoff_seconds / poll_error / status_line) instead of unwinding
+        the loop and dumping the user mid-listening. The last-known playback
+        state is retained so position estimation keeps working between
+        retries. A 403 (missing scope) still exits: fetch raises SystemExit,
+        which is not a RequestException."""
+        try:
+            state = self.fetch_playback()
+        except requests.exceptions.RequestException as exc:
+            self._poll_failures += 1
+            backoff = min(
+                POLL_BACKOFF_CAP_SECONDS,
+                POLL_INTERVAL_SECONDS * (2 ** (self._poll_failures - 1)),
+            )
+            retry_after = self._retry_after_seconds(exc)
+            if retry_after is not None:
+                backoff = max(backoff, min(retry_after, RETRY_AFTER_CAP_SECONDS))
+            self.poll_backoff_seconds = backoff
+            self.poll_error = f"{exc.__class__.__name__} (retry in {backoff:.0f}s)"
+            return None
+        self._poll_failures = 0
+        self.poll_backoff_seconds = 0.0
+        self.poll_error = None
         if not state or not state.get("item"):
             self.track = None
             self.is_playing = False
@@ -112,6 +147,18 @@ class PlaybackTracker:
         if changed:
             self._refresh_graph_membership()
         return state
+
+    @staticmethod
+    def _retry_after_seconds(exc):
+        """Retry-After from the failed response, if any (429 rate limits)."""
+        response = getattr(exc, "response", None)
+        if response is None or response.headers is None:
+            return None
+        value = response.headers.get("Retry-After")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _refresh_graph_membership(self):
         """On track change: warn up front when the playing track isn't in the
@@ -267,8 +314,9 @@ class PlaybackTracker:
     # --- display -----------------------------------------------------------
 
     def status_line(self):
+        suffix = f"  !! poll failing: {self.poll_error}" if self.poll_error else ""
         if self.track is None:
-            return "-- no active playback --"
+            return "-- no active playback --" + suffix
         artists = ", ".join(a.get("name", "?") for a in self.track.get("artists", []))
         state = ">" if self.is_playing else "||"
         marker = "  [NOT IN GRAPH]" if self.current_track_in_graph is False else ""
@@ -276,7 +324,7 @@ class PlaybackTracker:
         return (
             f'{state} {artists} - {self.track["name"]}{marker}  '
             f'{format_ms(self.position_ms())}/{format_ms(self.track.get("duration_ms"))}  '
-            f'({len(self.session)} captured{failed})'
+            f'({len(self.session)} captured{failed}){suffix}'
         )
 
     def session_summary(self):
@@ -306,6 +354,7 @@ def fetch_playback_from_api():
         response = requests.get(
             f"{SPOTIFY_API_BASE_URL}/v1/me/player",
             headers={"Authorization": f"Bearer {_read_token()}"},
+            timeout=10,  # a hung poll would freeze the whole capture loop
         )
         if response.status_code == 204:
             return None
@@ -405,11 +454,10 @@ def main(argv=None):
         last_poll = 0.0
         while not tracker.quit_requested:
             now = time.monotonic()
-            if now - last_poll >= args.interval:
-                try:
-                    tracker.poll()
-                except requests.exceptions.ConnectionError as exc:
-                    _redraw(f'!! player poll failed: {exc.__class__.__name__} (retrying)')
+            # poll() absorbs transient HTTP failures itself (bounded backoff,
+            # surfaced on the status line); only a 403 SystemExit escapes.
+            if now - last_poll >= max(args.interval, tracker.poll_backoff_seconds):
+                tracker.poll()
                 last_poll = now
             for notice in tracker.drain_notices():
                 sys.stdout.write("\r\x1b[K!! " + notice + "\n")

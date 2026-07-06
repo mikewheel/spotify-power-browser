@@ -5,9 +5,16 @@ import os
 import select
 
 import pytest
+import requests
 
 from application.annotations import model
-from application.annotations.listen import NUDGE_STEP_MS, PlaybackTracker, _read_key
+from application.annotations.listen import (
+    NUDGE_STEP_MS,
+    POLL_BACKOFF_CAP_SECONDS,
+    RETRY_AFTER_CAP_SECONDS,
+    PlaybackTracker,
+    _read_key,
+)
 
 
 class FakeClock:
@@ -267,6 +274,71 @@ def test_quit_and_unmapped_keys():
     assert not tracker.quit_requested
     tracker.handle_key("q")
     assert tracker.quit_requested
+
+
+def _http_error(status, headers=None):
+    """A requests HTTPError carrying a response, like raise_for_status raises."""
+    response = requests.models.Response()
+    response.status_code = status
+    response.headers.update(headers or {})
+    return requests.exceptions.HTTPError(f"HTTP {status}", response=response)
+
+
+def _flaky_tracker(outcomes):
+    """A tracker whose fetch yields payloads or raises scripted exceptions."""
+    iterator = iter(outcomes)
+
+    def fetch():
+        outcome = next(iterator)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    writer = FakeWriter()
+    return PlaybackTracker(fetch, writer, lambda _m: "", clock=FakeClock()), writer
+
+
+def test_poll_survives_429_and_honors_capped_retry_after():
+    tracker, _ = _flaky_tracker([
+        _state(progress_ms=41000),
+        _http_error(429, {"Retry-After": "7"}),
+        _http_error(429, {"Retry-After": "86400"}),  # absurd server value
+    ])
+    tracker.poll()
+    assert tracker.poll() is None  # survived: no exception out of poll()
+    assert tracker.poll_backoff_seconds == 7.0  # Retry-After honored
+    assert tracker.track["id"] == "trk1"  # last-known state retained
+    assert "poll failing" in tracker.status_line()
+    tracker.poll()
+    assert tracker.poll_backoff_seconds == RETRY_AFTER_CAP_SECONDS  # ... but capped
+
+
+def test_poll_survives_5xx_and_timeouts_with_bounded_backoff():
+    outcomes = [_http_error(500)] * 3 + [requests.exceptions.ReadTimeout("read timed out")] * 7
+    tracker, _ = _flaky_tracker(outcomes)
+    backoffs = []
+    for _ in range(10):
+        assert tracker.poll() is None  # session keeps going every time
+        backoffs.append(tracker.poll_backoff_seconds)
+    assert backoffs[:3] == [1.0, 2.0, 4.0]  # exponential from the poll interval
+    assert max(backoffs) == POLL_BACKOFF_CAP_SECONDS  # bounded
+    assert "poll failing" in tracker.status_line()
+
+
+def test_poll_success_resets_backoff_and_clears_the_error():
+    tracker, _ = _flaky_tracker([
+        _http_error(502),
+        _http_error(502),
+        _state(progress_ms=41000),
+    ])
+    tracker.poll()
+    tracker.poll()
+    assert tracker.poll_backoff_seconds > 0
+    state = tracker.poll()
+    assert state["item"]["id"] == "trk1"
+    assert tracker.poll_backoff_seconds == 0.0
+    assert tracker.poll_error is None
+    assert "poll failing" not in tracker.status_line()
 
 
 def test_read_key_burst_leaves_pending_keys_visible_to_select():
