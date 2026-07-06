@@ -4,6 +4,7 @@ ephemeral localhost port (no compose network, no Neo4j — the store is the
 in-memory protocol double from application/playlists/model.py).
 """
 import json
+import logging
 import threading
 from wsgiref.simple_server import make_server
 
@@ -42,6 +43,18 @@ def mock_url():
 @pytest.fixture
 def client(mock_url):
     return SpotifyPlaylistClient(base_url=mock_url, token="mock-token")
+
+
+@pytest.fixture
+def sync_log(caplog):
+    """Capture the sync module's log records: its logger sets propagate=False
+    (application/loggers.py), so caplog's root-logger handler never sees them
+    unless attached to the module logger directly."""
+    sync_logger = logging.getLogger("application.playlists.sync")
+    caplog.set_level(logging.INFO)
+    sync_logger.addHandler(caplog.handler)
+    yield caplog
+    sync_logger.removeHandler(caplog.handler)
 
 
 def _ids(*numbers):
@@ -92,6 +105,37 @@ def test_compute_diff_reorder_requires_order_significance():
     reordered = compute_diff(_ids(1, 2, 3), _ids(3, 1, 2), order_significant=True)
     assert reordered.rewrite is True
     assert reordered.adds == [] and reordered.removes == []
+
+
+def test_compute_diff_forces_rewrite_when_current_duplicates_a_kept_id():
+    # Remove-by-URI removes ALL occurrences of an id, so a duplicate of a
+    # target-kept id can only be corrected by the full-rewrite path. The
+    # description stamp promises manual edits are overwritten, so these must
+    # never be reported as "in sync". Three traced scenarios:
+
+    # [A,A,B] -> [A,B]: adds/removes are empty; only rewrite can fix the dup.
+    dup_in_sync = compute_diff(_ids(1, 1, 2), _ids(1, 2), order_significant=True)
+    assert dup_in_sync.rewrite is True
+    assert not dup_in_sync.is_empty
+
+    # [A,A,B] -> [A,B,C]: append-only would leave [A,A,B,C] behind.
+    dup_with_add = compute_diff(_ids(1, 1, 2), _ids(1, 2, 3), order_significant=True)
+    assert dup_with_add.rewrite is True
+
+    # [A,B,A] -> [A]: removing B alone would leave [A,A].
+    dup_with_remove = compute_diff(_ids(1, 2, 1), _ids(1), order_significant=True)
+    assert dup_with_remove.rewrite is True
+
+    # Order-insignificant generators still promise deduped contents, so the
+    # duplicate forces the rewrite there too.
+    dup_unordered = compute_diff(_ids(1, 1, 2), _ids(1, 2), order_significant=False)
+    assert dup_unordered.rewrite is True
+
+    # Duplicates only of ids being REMOVED don't need a rewrite: remove-by-URI
+    # already drops every occurrence.
+    dup_removed = compute_diff(_ids(9, 9, 1), _ids(1), order_significant=True)
+    assert dup_removed.rewrite is False
+    assert dup_removed.removes == _ids(9)
 
 
 def test_params_hash_is_stable_and_order_insensitive():
@@ -225,6 +269,27 @@ def test_dry_run_makes_no_writes_anywhere(client, mock_url):
     assert store.get_by_spotify_id(applied["playlist_id"])["target_snapshots"] == snapshots_before
 
 
+def test_noop_applied_syncs_do_not_rotate_the_snapshot_window(client, mock_url):
+    # The 3-slot snapshot window is the restore path for "a generator
+    # regression blanked a beloved playlist". If every scheduled no-op apply
+    # pushed the (identical) target again, two cron runs after a bad apply
+    # would rotate the pre-regression snapshot out of the window.
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))       # the good, pre-change target
+    playlist_id = first["playlist_id"]
+    _sync(client, store, _ids(9))                  # a change (e.g. a regression)
+
+    for _ in range(2):                             # two scheduled no-op applies
+        result = _sync(client, store, _ids(9))
+        assert result["applied"] is True and result["diff"].is_empty
+
+    snapshots = [
+        json.loads(s)["track_ids"]
+        for s in store.get_by_spotify_id(playlist_id)["target_snapshots"]
+    ]
+    assert snapshots == [_ids(9), _ids(1, 2)]      # pre-change target still restorable
+
+
 def test_reorder_rewrites_only_for_order_significant_generators(client, mock_url):
     store = InMemoryManagedPlaylistStore()
     first = _sync(client, store, _ids(1, 2, 3))
@@ -238,6 +303,94 @@ def test_reorder_rewrites_only_for_order_significant_generators(client, mock_url
     reordered = _sync(client, store, _ids(3, 1, 2), order_significant=True)
     assert reordered["diff"].rewrite is True
     assert client.get_playlist_track_ids(first["playlist_id"]) == _ids(3, 1, 2)
+
+
+def test_sync_overwrites_manual_duplicates_of_kept_tracks(client, mock_url, sync_log):
+    # The stamp promises "changes are overwritten": a duplicate added by hand
+    # in the Spotify app must be corrected on the next applied sync, not
+    # reported as in-sync forever.
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))
+    playlist_id = first["playlist_id"]
+    client.add_tracks(playlist_id, _ids(1))  # manual edit -> [1, 2, 1]
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2, 1)
+
+    result = _sync(client, store, _ids(1, 2))
+    assert not result["diff"].is_empty
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2)
+
+    # ...and stays in sync afterwards.
+    assert _sync(client, store, _ids(1, 2))["diff"].is_empty
+
+
+def test_sync_with_adds_also_corrects_duplicates_without_false_warning(client, mock_url, sync_log):
+    # current [1, 2, 1] -> target [1, 2, 3]: pre-fix this appended 3 only,
+    # left the duplicate in place, and logged a false "unplayable ids"
+    # warning because len(final) != len(target).
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))
+    playlist_id = first["playlist_id"]
+    client.add_tracks(playlist_id, _ids(1))  # manual edit -> [1, 2, 1]
+
+    sync_log.clear()
+    _sync(client, store, _ids(1, 2, 3))
+    assert client.get_playlist_track_ids(playlist_id) == _ids(1, 2, 3)
+    assert not any("unplayable" in record.message for record in sync_log.records)
+
+
+def test_get_playlist_track_ids_drops_local_file_items(sync_log):
+    # Local files added from the desktop client come back with a track OBJECT
+    # present but "id": null (unlike deleted/unavailable items, where the
+    # whole track is null). A None in current would later be scheduled for
+    # removal as the malformed URI 'spotify:track:None' -> HTTP 400 on every
+    # subsequent sync. Null-id items must be dropped (and counted) instead.
+    pages = {
+        "/v1/playlists/pl000001/tracks": {
+            "items": [
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000001", "type": "track"}},
+                {"added_at": "2026-01-01T00:00:00Z", "is_local": True,
+                 "track": {"id": None, "uri": "spotify:local:Artist:Album:Song:210",
+                           "name": "Song", "type": "track", "is_local": True}},
+                {"added_at": "2026-01-01T00:00:00Z", "track": None},  # removed-from-catalog item
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000002", "type": "track"}},
+            ],
+            "next": "http://mock.invalid/page2",
+        },
+        "http://mock.invalid/page2": {
+            "items": [
+                {"added_at": "2026-01-01T00:00:00Z", "is_local": True,
+                 "track": {"id": None, "uri": "spotify:local:Artist:Album:Other:180",
+                           "name": "Other", "type": "track", "is_local": True}},
+                {"added_at": "2026-01-01T00:00:00Z", "track": {"id": "trk000003", "type": "track"}},
+            ],
+            "next": None,
+        },
+    }
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    client = SpotifyPlaylistClient(base_url="http://mock.invalid", token="t")
+    client._request = lambda method, path_or_url, **kwargs: _FakeResponse(
+        pages[path_or_url if path_or_url.startswith("http") else path_or_url]
+    )
+
+    track_ids = client.get_playlist_track_ids("pl000001")
+    assert track_ids == ["trk000001", "trk000002", "trk000003"]
+    assert None not in track_ids
+
+    # ...so no None can ever reach a remove/add body via the diff.
+    diff = compute_diff(track_ids, ["trk000001"], order_significant=True)
+    assert None not in diff.removes and None not in diff.adds
+
+    # Logged once per fetch, with the count of dropped items across all pages.
+    local_file_warnings = [r for r in sync_log.records if "no track id" in r.message]
+    assert len(local_file_warnings) == 1
+    assert "2" in local_file_warnings[0].message
 
 
 def test_401_refreshes_and_retries_once(mock_url):

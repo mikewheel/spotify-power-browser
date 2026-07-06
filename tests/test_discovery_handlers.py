@@ -248,12 +248,31 @@ def test_batch_albums_flag_on_tolerates_albums_without_embedded_tracks(make, mon
     assert url_calls == []
 
 
-def test_batch_albums_flag_on_still_terminates_at_depth_zero(make, monkeypatch):
+def test_batch_albums_at_depth_zero_still_follows_tracks_next(make, monkeypatch):
+    # Regression (review): a batch-album response can arrive at depth 0 (e.g.
+    # the liked-songs crawl's album batches when DEPTH_OF_SEARCH=1). Its
+    # embedded first-50 tracks are persisted by write_to_neo4j regardless of
+    # depth, so the >50-track continuation must be enqueued too -- pagination
+    # continues a resource, it isn't a hop (the engine follows top-level
+    # `next` unconditionally, even at depth 0). Only the artists hop ends.
     monkeypatch.setattr(FLAG, True)
     batch_calls = _capture_request_batch(monkeypatch)
+    url_calls = _capture_request_url(monkeypatch)
+    album = _album_with_embedded_tracks(make, 1, [["art1"]], tracks_next="http://x/next")
+    GetSeveralAlbumsResponseHandler(None, 0, {"albums": [album]}).follow_links()
+    assert batch_calls == []  # the artists hop still terminates at depth 0
+    assert url_calls == [("http://x/next", 0)]  # same-depth continuation, not decremented
+
+
+def test_batch_albums_flag_off_never_follows_tracks_next_at_depth_zero(make, monkeypatch):
+    # Flag off must stay byte-for-byte unchanged: no continuation, no hops.
+    monkeypatch.setattr(FLAG, False)
+    batch_calls = _capture_request_batch(monkeypatch)
+    url_calls = _capture_request_url(monkeypatch)
     album = _album_with_embedded_tracks(make, 1, [["art1"]], tracks_next="http://x/next")
     GetSeveralAlbumsResponseHandler(None, 0, {"albums": [album]}).follow_links()
     assert batch_calls == []
+    assert url_calls == []
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import requests
 from application.config import APPLICATION_DIR
 from application.requests_factory import SpotifyRequestFactory
 from application.response_handlers import (
+    GetSeveralAlbumsResponseHandler,
     GetSeveralArtistsResponseHandler,
     GetTracksOfAlbumResponseHandler,
     LikedSongsPlaylistResponseHandler,
@@ -174,6 +175,60 @@ def test_tracks_of_album_page_writes_tracks_and_frontier_stubs(mock_base, graph)
         "RETURN a.crawl_source AS src, a.liked_songs AS liked, count(t) AS c")
     assert recs and recs[0]["src"] == "discography" and recs[0]["liked"] is None
     assert recs[0]["c"] >= 1
+
+
+def test_batch_album_insert_upgrades_out_of_order_stub_album(graph, make, monkeypatch):
+    # Regression (review): the tracks-page handler MERGEs a stub Album
+    # {uri, id, crawl_source} to tolerate out-of-order queue consumption -- and
+    # if the /v1/albums?ids= write is lost (auto_ack), the Redis crawled-URL
+    # set blocks the only refetch path. insert_batch_of_albums.cypher used to
+    # be ON CREATE SET only, so the MERGE matched the stub, skipped ON CREATE,
+    # and the album stayed property-less forever. The batch insert must
+    # upgrade a matched stub via the coalesce(payload, existing) pattern.
+    monkeypatch.setattr(FLAG, False)  # isolate the album-node Cypher under test
+
+    url = "http://spotify_mock/v1/albums/DISCTEST9/tracks?offset=50&limit=50"
+    page = {
+        "href": url,
+        "items": [{
+            "uri": "spotify:track:DISCTEST9t1",
+            "id": "DISCTEST9t1",
+            "name": "Stub Tail 1",
+            "artists": [{"uri": "spotify:artist:DISCTEST9a1", "id": "DISCTEST9a1",
+                         "name": "Stub Credit", "external_urls": {"spotify": "x"},
+                         "type": "artist"}],
+        }],
+        "limit": 50, "offset": 50, "next": None, "total": 51,
+    }
+    GetTracksOfAlbumResponseHandler(url, 1, page).write_to_neo4j(driver=graph)
+
+    def stored():
+        recs, _, _ = graph.execute_query(
+            "MATCH (al:Album {uri: 'spotify:album:DISCTEST9'}) RETURN al{.*} AS a")
+        assert recs, "album node must exist"
+        return recs[0]["a"]
+
+    stub = stored()
+    assert stub["crawl_source"] == "discography"
+    assert "name" not in stub  # property-less stub, exactly the scenario under test
+
+    # The full payload arrives later (out of order / after a lost write).
+    full_album = make.album("DISCTEST9")  # uri spotify:album:DISCTEST9 matches the stub
+    GetSeveralAlbumsResponseHandler(None, 0, {"albums": [full_album]}).write_to_neo4j(driver=graph)
+
+    upgraded = stored()
+    assert upgraded["name"] == full_album["name"]
+    assert upgraded["release_date"] == full_album["release_date"]
+    assert upgraded["release_date_precision"] == full_album["release_date_precision"]
+    assert upgraded["total_tracks"] == full_album["total_tracks"]
+    assert upgraded["album_type"] == full_album["album_type"]
+    assert upgraded["spotify_url"] == full_album["external_urls"]["spotify"]
+    assert upgraded["type"] == full_album["type"]
+    assert upgraded["href"] == full_album["href"]
+    # Identity and provenance survive the upgrade untouched (ON MATCH never
+    # rewrites uri/id/crawl_source -- only the descriptive payload fields).
+    assert upgraded["id"] == "DISCTEST9"
+    assert upgraded["crawl_source"] == "discography"
 
 
 # ---------------------------------------------------------------------------

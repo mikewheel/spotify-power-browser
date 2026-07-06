@@ -22,10 +22,12 @@ class GetTracksOfAlbumResponseHandler(BaseResponseHandler):
     "next" at the same depth until pagination ends.
 
     Depth semantics: pages arrive at the depth of the batch-album response
-    that spawned them (1 in a discography crawl -- pagination is a
-    continuation, not a hop), so follow_links can still batch this page's
-    track credits at depth 0 for frontier enrichment, where the terminal
-    artists handler ends the crawl.
+    that spawned them (pagination is a continuation, not a hop, so the
+    spawning handler enqueues them even at depth 0). At depth >= 1,
+    follow_links batches this page's track credits at depth-1 for frontier
+    enrichment; at depth 0 the page is still persisted (write_to_neo4j runs
+    unconditionally -- no silent truncation of >50-track albums) but the
+    credits hop ends here.
     """
 
     URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/albums/{{album_id}}/tracks"
