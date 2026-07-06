@@ -197,10 +197,19 @@ def resolve_seed_users(user=None, all_users=False):
     # Imported lazily: the token store touches the secrets dir, which only the
     # seeding entrypoint needs (the factory class itself stays import-light).
     from application.spotify_authentication.token_store import (
-        get_primary_user_id, list_user_ids,
+        get_primary_user_id, has_user, list_user_ids,
     )
 
     if user:
+        # Fail fast on a typo'd id: seeding for a user with no tokens would
+        # make the engine fall back to the legacy bearer, silently crawling
+        # the PRIMARY user's library instead of the intended one.
+        if not has_user(user):
+            raise SystemExit(
+                f"No authorized user {user!r} under secrets/users/ "
+                f"(known: {list_user_ids() or 'none'}). "
+                f"Have them log in via /login first."
+            )
         return [user]
     if all_users:
         users = list_user_ids()

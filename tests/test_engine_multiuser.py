@@ -71,6 +71,27 @@ def test_unknown_user_id_falls_back_to_legacy_token(env, mock_base):
     # worker: the engine acts as the legacy identity instead of crashing.
     _call(f"{mock_base}/v1/me", user_id="ghost-user")
     assert env.published[0]["response"]["id"] == "mockuser"
+    # OWNERSHIP FOLLOWS THE BEARER THAT FETCHED: the ghost id must NOT ride
+    # the response envelope, or handlers would record a nonexistent user as
+    # owning data the legacy identity fetched.
+    assert all(msg["user_id"] is None for msg in env.published)
+
+
+def test_unknown_user_pagination_requeues_as_the_resolved_identity(env, mock_base):
+    _call(f"{mock_base}/v1/me/tracks?offset=0&limit=7", depth=1, user_id="ghost-user")
+    # legacy identity fetched (primary's full 60-track set -> a next page)...
+    assert env.requested, "expected a pagination re-queue"
+    next_url, _, user_id = env.requested[0]
+    assert "offset=7" in next_url
+    assert user_id is None  # ...and the continuation belongs to it too
+
+
+def test_factory_rejects_a_user_with_no_tokens(env, monkeypatch):
+    from application.requests_factory import resolve_seed_users
+    with pytest.raises(SystemExit):
+        resolve_seed_users(user="nobody-here")
+    assert resolve_seed_users(user="mockuser2") == ["mockuser2"]
+    assert resolve_seed_users() == ["mockuser"]  # the recorded primary
 
 
 def test_pagination_requeue_conserves_the_envelope_user(env, mock_base):

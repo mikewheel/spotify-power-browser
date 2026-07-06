@@ -174,20 +174,27 @@ def make_spotify_api_call(ch, method, properties, body):
             if response.get("next") is not None:
                 next_request_url = response["next"]
                 # Send a request for the next URL. The pagination continuation
-                # MUST keep the envelope's user (plan 06): /v1/me/tracks page 2
-                # is a different resource per bearer.
+                # MUST keep the acting user (plan 06): /v1/me/tracks page 2 is
+                # a different resource per bearer. The RESOLVED user rides the
+                # envelope (not the raw one): after an unknown-user fallback
+                # the follow-ups belong to the identity that actually fetched.
                 SpotifyRequestFactory.request_url(
                     next_request_url,
                     depth_of_search=depth_of_search,
-                    user_id=envelope_user_id,
+                    user_id=user_id,
                 )
             else:
                 logger.debug(f'Reached the end of pagination for URL {request_url}')
 
+            # Ownership follows the bearer that FETCHED (plan 06): downstream
+            # handlers write (:User)-[:LIKED] from this field, so publishing
+            # the resolved user — not the raw envelope value — guarantees a
+            # ghost user id (unknown token dir -> legacy-token fallback) can
+            # never be recorded as owning data another account fetched.
             response_data_with_request = {
                 "request_url": request_url,
                 "depth_of_search": depth_of_search,
-                "user_id": envelope_user_id,
+                "user_id": user_id,
                 "response": response
             }
 
