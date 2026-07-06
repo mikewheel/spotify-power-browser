@@ -1,17 +1,30 @@
 import requests
 
 from application.config import SECRETS_DIR, SPOTIFY_ACCOUNTS_BASE_URL
+from application.spotify_authentication import token_store
 
 SPOTIFY_CLIENT_ID_FILE = SECRETS_DIR / "spotify_client_id.secret"
 SPOTIFY_CLIENT_SECRET_FILE = SECRETS_DIR / "spotify_client_secret.secret"
+# Legacy single-user token paths, kept as module attributes because existing
+# tests monkeypatch them; they are the user_id=None storage location.
 SPOTIFY_API_TOKEN_FILE = SECRETS_DIR / "spotify_api_token.secret"
 SPOTIFY_REFRESH_TOKEN_FILE = SECRETS_DIR / "spotify_refresh_token.secret"
 
 
-def refresh_spotify_auth():
+def refresh_spotify_auth(user_id=None):
+    """Exchange the (per-user) refresh token for a fresh access token.
 
-    with open(SPOTIFY_REFRESH_TOKEN_FILE, "r") as f:
-        refresh_token = f.read()
+    user_id=None preserves the legacy single-user behavior byte-for-byte:
+    read/write the fixed secrets/spotify_*.secret files. A user id reads and
+    writes secrets/users/<id>/ instead (plan 06 T3); when that user is the
+    primary, token_store.save_tokens also mirrors to the legacy files so the
+    compose auth gate and legacy consumers never go stale.
+    """
+    if user_id is None:
+        with open(SPOTIFY_REFRESH_TOKEN_FILE, "r") as f:
+            refresh_token = f.read()
+    else:
+        refresh_token = token_store.read_refresh_token(user_id)
 
     with open(SPOTIFY_CLIENT_ID_FILE, "r") as f:
         client_id = f.read()
@@ -42,8 +55,13 @@ def refresh_spotify_auth():
     # the current one then (per RFC 6749 §6 the old token stays valid).
     refresh_token = r.get("refresh_token", refresh_token)
 
-    with open(SPOTIFY_API_TOKEN_FILE, "w") as f:
-        f.write(access_token)
+    if user_id is None:
+        # Write through the module-level paths (not token_store) so the
+        # existing tests' monkeypatched tmp files keep working.
+        with open(SPOTIFY_API_TOKEN_FILE, "w") as f:
+            f.write(access_token)
 
-    with open(SPOTIFY_REFRESH_TOKEN_FILE, "w") as f:
-        f.write(refresh_token)
+        with open(SPOTIFY_REFRESH_TOKEN_FILE, "w") as f:
+            f.write(refresh_token)
+    else:
+        token_store.save_tokens(user_id, access_token, refresh_token)
