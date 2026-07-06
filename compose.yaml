@@ -91,6 +91,14 @@ services:
       - rabbitmq
       - redis
     command: bash -c "sleep 5 && python3 application/api_call_engine.py"
+    # Crawl-efficiency flags, overridable at `docker compose up` time, e.g.
+    #   RESET_CRAWL=true USE_BATCH_ENDPOINTS=true docker compose up
+    # Defaults mirror application/config.py so an unset shell var keeps the
+    # documented default (notably CRAWLED_URL_DEDUP stays ON).
+    environment:
+      RESET_CRAWL: ${RESET_CRAWL:-false}
+      USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
+      CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
 
   responses_write_to_disk:
     image: "spotify-power-browser:latest"
@@ -104,12 +112,19 @@ services:
     links:
       - rabbitmq
     command: python3 application/response_handlers/main.py write_to_disk
+    environment:
+      RESET_CRAWL: ${RESET_CRAWL:-false}
+      USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
+      CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
 
   responses_write_to_neo4j:
     image: "spotify-power-browser:latest"
     # Point this worker at Neo4j Desktop on the host rather than a container.
     environment:
       NEO4J_HOSTNAME: host.docker.internal
+      RESET_CRAWL: ${RESET_CRAWL:-false}
+      USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
+      CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -139,6 +154,10 @@ services:
       - rabbitmq
       - redis
     command: python3 application/response_handlers/main.py follow_links
+    environment:
+      RESET_CRAWL: ${RESET_CRAWL:-false}
+      USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
+      CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
 
   requests_factory_start_crawls:
     image: "spotify-power-browser:latest"
@@ -167,6 +186,10 @@ services:
       - rabbitmq
       - redis
     command: bash -c "sleep 5 && python3 application/requests_factory.py"
+    environment:
+      RESET_CRAWL: ${RESET_CRAWL:-false}
+      USE_BATCH_ENDPOINTS: ${USE_BATCH_ENDPOINTS:-false}
+      CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
 
   spotify_mock:
     image: "spotify-power-browser:latest"
