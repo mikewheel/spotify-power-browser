@@ -238,6 +238,10 @@ services:
     volumes:
       - "./secrets:/src/secrets"
       - "./tests:/src/tests"
+      # mock_spotify normally runs as the spotify_mock service, but tests that
+      # drive the catalog/mock app in-process (plans 03 + 08) import it
+      # directly — mount it so those tests run (not skip) in compose.
+      - "./mock_spotify:/src/mock_spotify"
     depends_on:
       rabbitmq:
         condition: service_healthy
