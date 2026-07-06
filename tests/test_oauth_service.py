@@ -68,13 +68,36 @@ def test_login_page_lists_authorized_users(svc, client):
 def test_login_start_redirects_to_spotify_authorize_with_state(svc, client):
     # Guards the Falcon app wiring (and a Falcon major bump).
     resp = client.simulate_get("/login/start")
-    assert resp.status_code in (301, 302)
+    assert resp.status_code == 303
     location = resp.headers["location"]
     assert location.startswith(f"{svc.SPOTIFY_ACCOUNTS_BASE_URL}/authorize")
     assert "state=" in location
     # ...and the nonce it carries was actually stored for the callback.
     minted = location.split("state=")[1].split("&")[0]
     assert minted in svc._test_states
+
+
+def test_login_start_redirect_is_not_browser_cacheable(svc, client):
+    # The redirect's Location embeds a SINGLE-USE state nonce. A 301 is
+    # heuristically cacheable with no Cache-Control header, so the second
+    # "Add a user" click in the same browser (the runbook's friends-at-your-
+    # machine onboarding) would replay the already-consumed nonce and the
+    # callback would 400 on every retry until a hard cache clear. The
+    # redirect must be a 303 See Other AND explicitly non-storable.
+    resp = client.simulate_get("/login/start")
+    assert resp.status_code == 303
+    assert resp.headers.get("Cache-Control") == "no-store"
+
+
+def test_login_start_mints_a_fresh_nonce_per_click(svc, client):
+    # Two friends clicking "Add a user" back-to-back must each get their own
+    # single-use state (the cached-301 failure mode collapsed them into one).
+    loc1 = client.simulate_get("/login/start").headers["location"]
+    loc2 = client.simulate_get("/login/start").headers["location"]
+    nonce1 = loc1.split("state=")[1].split("&")[0]
+    nonce2 = loc2.split("state=")[1].split("&")[0]
+    assert nonce1 != nonce2
+    assert {nonce1, nonce2} <= svc._test_states
 
 
 def test_login_start_uses_loopback_ip_not_localhost(svc, client):
