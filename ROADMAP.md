@@ -1,6 +1,16 @@
 # Spotify Power Browser — Roadmap & Status
 
-_Last updated: 2026-06-21_
+_Last updated: 2026-07-06_
+
+> **2026-07-06 — first full-library crawl completed** (12,547 tracks / 9,832
+> albums / 7,587 artists / 634 genres, ~18 min, zero 429s, batching on), and a
+> full set of forward-looking feature plans landed in **[docs/plans/](docs/plans/README.md)**:
+> adjacent-artist discovery, listening completeness, entity mastering,
+> annotations & DJ sets, a graph MCP server, multiplayer, beyond-Spotify
+> (local files + SoundCloud), playlist write-back, and taste-over-time.
+> Those plans supersede the sketches in Stages 2–4 below where they overlap
+> (each plan says which). The **live-verified API surface** (what this app
+> retains post-deprecations) is tabled in the plans README.
 
 A personal data-engineering project that crawls the Spotify Web API and builds a
 graph of your musical taste in Neo4j. This document is the single source of truth
