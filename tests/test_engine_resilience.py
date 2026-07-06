@@ -67,6 +67,31 @@ def test_500_exhaustion_gives_up_and_rolls_back_dedup(engine_env, mock_base, red
     assert url_is_new(url, 0) is True              # True again => it was rolled back
 
 
+def test_401_refresh_failure_rolls_back_dedup_before_raising(engine_env, mock_base,
+                                                             redis_client, monkeypatch):
+    # A 401 whose refresh FAILS (revoked grant -> Spotify 400 invalid_grant,
+    # or a deleted token file) is a give-up for this message: with auto_ack
+    # there's no redelivery, so — exactly like the 429/500 give-up paths —
+    # the dedup mark must be rolled back before the exception propagates, or
+    # the URL (and its whole pagination chain) is unreachable forever even
+    # after the user re-authorizes.
+    from application.cache.redis_client import url_is_new, reset_crawled_set
+    reset_crawled_set()
+
+    def broken_refresh(user_id=None):
+        raise requests.exceptions.HTTPError("400 invalid_grant (refresh token revoked)")
+    monkeypatch.setattr(engine, "refresh_spotify_auth", broken_refresh)
+
+    url = f"{mock_base}/v1/tracks/trk000007"
+    requests.post(f"{mock_base}/_control/config",
+                  json={"fail_url_substring": "trk000007", "fail_status": 401})
+
+    assert url_is_new(url, 0) is True              # mark it crawled (as request_url would)
+    with pytest.raises(requests.exceptions.HTTPError):
+        _call(url)                                  # 401 -> refresh raises -> give up
+    assert url_is_new(url, 0) is True              # True again => it was rolled back
+
+
 def test_persistent_429_gives_up_instead_of_looping_forever(engine_env, mock_base, redis_client):
     # A persistent ban must not loop forever: bounded retries -> give up, and
     # (like 500 exhaustion) the URL is rolled back so it stays re-requestable.

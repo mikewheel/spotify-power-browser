@@ -154,8 +154,20 @@ def make_spotify_api_call(ch, method, properties, body):
                     + (f' for user {user_id}' if user_id else '')
                     + '. Requesting new token...'
                 )
-                refresh_spotify_auth(user_id=user_id)
-                TOKEN_CACHE[user_id] = load_api_token(user_id)
+                # A failed refresh (revoked grant -> 400 invalid_grant, a
+                # deleted token file, a network error) is a GIVE-UP for this
+                # message: the consumer runs auto_ack, so there is no
+                # redelivery. Like every other give-up path above/below, roll
+                # the dedup mark back before propagating, or this URL — and
+                # its whole pagination chain — can never be re-published, even
+                # after the user re-authorizes.
+                try:
+                    refresh_spotify_auth(user_id=user_id)
+                    TOKEN_CACHE[user_id] = load_api_token(user_id)
+                except Exception:
+                    if CRAWLED_URL_DEDUP:
+                        unmark_url(request_url, depth_of_search, user_id=envelope_user_id)
+                    raise
                 logger.info(f'Success: new access token received.')
                 continue
 
