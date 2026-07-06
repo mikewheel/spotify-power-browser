@@ -18,5 +18,6 @@ RUN poetry install --no-interaction --no-ansi --no-root
 
 WORKDIR $APP_DIR
 COPY application/ ./application/
+COPY mcp_server/ ./mcp_server/
 
 CMD ["python3", "application/api_call_engine.py"]
