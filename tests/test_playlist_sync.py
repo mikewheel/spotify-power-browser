@@ -269,6 +269,27 @@ def test_dry_run_makes_no_writes_anywhere(client, mock_url):
     assert store.get_by_spotify_id(applied["playlist_id"])["target_snapshots"] == snapshots_before
 
 
+def test_noop_applied_syncs_do_not_rotate_the_snapshot_window(client, mock_url):
+    # The 3-slot snapshot window is the restore path for "a generator
+    # regression blanked a beloved playlist". If every scheduled no-op apply
+    # pushed the (identical) target again, two cron runs after a bad apply
+    # would rotate the pre-regression snapshot out of the window.
+    store = InMemoryManagedPlaylistStore()
+    first = _sync(client, store, _ids(1, 2))       # the good, pre-change target
+    playlist_id = first["playlist_id"]
+    _sync(client, store, _ids(9))                  # a change (e.g. a regression)
+
+    for _ in range(2):                             # two scheduled no-op applies
+        result = _sync(client, store, _ids(9))
+        assert result["applied"] is True and result["diff"].is_empty
+
+    snapshots = [
+        json.loads(s)["track_ids"]
+        for s in store.get_by_spotify_id(playlist_id)["target_snapshots"]
+    ]
+    assert snapshots == [_ids(9), _ids(1, 2)]      # pre-change target still restorable
+
+
 def test_reorder_rewrites_only_for_order_significant_generators(client, mock_url):
     store = InMemoryManagedPlaylistStore()
     first = _sync(client, store, _ids(1, 2, 3))

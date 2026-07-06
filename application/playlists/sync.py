@@ -12,8 +12,11 @@ Safety model (the managed-only hard rule):
     assert_managed(); an id the store can't resolve raises
     UnmanagedPlaylistError before any request is sent. Hand-made playlists
     are constitutionally untouchable.
-  - Each applied sync pushes the target list onto the node's rolling
-    last-three snapshots (p.target_snapshots, JSON strings, newest first).
+  - Each applied sync that CHANGES the playlist pushes the target list onto
+    the node's rolling last-three snapshots (p.target_snapshots, JSON
+    strings, newest first). No-op applies record nothing — otherwise
+    scheduled runs would rotate identical targets into the window and evict
+    the pre-regression snapshot this mechanism exists to keep.
     Restore path: json-decode the snapshot you want back —
 
         MATCH (p:ManagedPlaylist {spotify_id: $id}) RETURN p.target_snapshots
@@ -333,7 +336,15 @@ def sync_playlist(client, store, *, generator, identity_params, playlist_name,
 
     apply_diff(client, store, playlist_id, diff)
     client.update_details(playlist_id, description=description_stamp(display_name))
-    store.record_sync(playlist_id, diff.target)
+    # A no-op apply must NOT rotate the 3-slot snapshot window: pushing the
+    # (identical) target on every scheduled run would evict the
+    # pre-regression snapshot the restore path exists to keep. Decision: an
+    # empty diff records nothing at all, so last_synced deliberately marks
+    # the last applied sync that CHANGED the playlist (keeping record_sync
+    # atomic rather than splitting the Cypher contract to bump last_synced
+    # without a snapshot).
+    if not diff.is_empty:
+        store.record_sync(playlist_id, diff.target)
 
     # The API silently skips unplayable ids (market availability): log count
     # mismatches, don't fail.
