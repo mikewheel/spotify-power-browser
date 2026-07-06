@@ -128,19 +128,25 @@ class SpotifyRequestFactory:
     DISCOGRAPHY_SEED_DEPTH = 2
 
     @classmethod
-    def request_artist_discographies(cls, driver, depth_of_search=DISCOGRAPHY_SEED_DEPTH):
+    def request_artist_discographies(cls, driver, depth_of_search=DISCOGRAPHY_SEED_DEPTH,
+                                     user_id=None):
         """Seed the discography crawl (plan 01): one albums-list request per
         artist with >= ARTIST_AFFINITY_MIN liked tracks (read from Neo4j).
         include_groups excludes compilations/appears_on deliberately (that's
         where third-party compilation noise lives). Returns the per-seed
-        published/skipped booleans, like the other seed entrypoints."""
+        published/skipped booleans, like the other seed entrypoints.
+
+        user_id (plan 06) scopes the seed worklist to one user's taste via
+        (:User)-[:LIKED] (None = any user, the legacy single-user behavior)."""
         with open(
             APPLICATION_DIR / "graph_database" / "queries" / "discovery"
             / "fetch_discography_seed_artist_ids.cypher", "r"
         ) as f:
             query = f.read()
 
-        records, _, _ = driver.execute_query(query, affinity_min=ARTIST_AFFINITY_MIN)
+        records, _, _ = driver.execute_query(
+            query, affinity_min=ARTIST_AFFINITY_MIN, user_id=user_id
+        )
         logger.info(
             f'STARTING DISCOGRAPHY CRAWL: {len(records)} artists have >= '
             f'{ARTIST_AFFINITY_MIN} liked tracks'

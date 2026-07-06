@@ -29,14 +29,30 @@ def test_adjacent_discoveries_spec_shape():
     assert spec.playlist_name == "[SPB] Adjacent Discoveries"
     assert spec.identity_params == {}  # tuning knobs don't fork playlists
     assert spec.order_significant is True
-    assert set(spec.params) == {"max_popularity", "min_bridges"}
+    assert set(spec.params) == {"max_popularity", "min_bridges", "user_id"}
     assert "$max_popularity" in spec.query and "$min_bridges" in spec.query
     assert "track_id" in spec.query and "popularity_unknown" in spec.query
 
 
 def test_adjacent_discoveries_tuning_knobs_flow_into_params():
     spec = build_generator("adjacent-discoveries", max_popularity=25, min_bridges=3)
-    assert spec.params == {"max_popularity": 25, "min_bridges": 3}
+    assert spec.params == {"max_popularity": 25, "min_bridges": 3, "user_id": None}
+
+
+def test_user_scope_forks_identity_but_legacy_hash_is_stable():
+    # Plan 06: --user forks a per-user managed playlist. CRITICAL back-compat:
+    # the legacy (no --user) identity_params must stay {} so managed playlists
+    # created before multiplayer keep resolving to the same params_hash.
+    legacy = build_generator("adjacent-discoveries")
+    scoped = build_generator("adjacent-discoveries", user_id="friend2")
+    assert legacy.identity_params == {}
+    assert scoped.identity_params == {"user_id": "friend2"}
+    assert params_hash(legacy.identity_params) != params_hash(scoped.identity_params)
+    assert scoped.params["user_id"] == "friend2"
+    assert "friend2" in scoped.playlist_name  # distinct playlist per user
+
+    queue = build_generator("exploration-queue", ["Four", "Tet"], user_id="friend2")
+    assert queue.identity_params == {"artist_name": "four tet", "user_id": "friend2"}
 
 
 def test_adjacent_discoveries_rejects_positional_args():
@@ -49,7 +65,7 @@ def test_exploration_queue_spec_shape():
     assert spec.key == "exploration-queue"
     assert spec.playlist_name == "[SPB] Exploration Queue - Four Tet"
     assert spec.identity_params == {"artist_name": "four tet"}  # one playlist per artist
-    assert spec.params == {"artist_name": "Four Tet"}
+    assert spec.params == {"artist_name": "Four Tet", "user_id": None}
     assert spec.order_significant is True
     assert "$artist_name" in spec.query
 
@@ -100,8 +116,23 @@ def test_run_generator_dedupes_and_counts_unknown_popularity():
 
 @pytest.fixture
 def seeded_graph(neo4j_driver):
-    purge = f"MATCH (n) WHERE n.uri CONTAINS '{MARK}' OR n.spotify_id CONTAINS '{MARK}' DETACH DELETE n"
+    purge = (
+        f"MATCH (n) WHERE n.uri CONTAINS '{MARK}' OR n.spotify_id CONTAINS '{MARK}' "
+        f"OR (n:User AND n.id CONTAINS '{MARK}') DETACH DELETE n"
+    )
     neo4j_driver.execute_query(purge)
+
+    # Plan 06: "liked" is the (:User)-[:LIKED] relationship. The seeded user
+    # mimics a migrated single-user graph (legacy liked_songs props kept too).
+    test_user = f"{MARK}-USER"
+    neo4j_driver.execute_query("MERGE (u:User {id: $id})", id=test_user)
+
+    def _liked(track_id):
+        neo4j_driver.execute_query(
+            "MATCH (t:Track {id: $track_id}) MATCH (u:User {id: $user_id}) "
+            "MERGE (u)-[:LIKED {added_at: '2021-01-01T00:00:00Z'}]->(t)",
+            track_id=track_id, user_id=test_user,
+        )
 
     def _node(label, ident, **props):
         assignments = ", ".join(f"n.{key} = ${key}" for key in props)
@@ -126,6 +157,7 @@ def seeded_graph(neo4j_driver):
         liked = f"{m}-LIKED"
         _node("Track", liked, name=liked, liked_songs=True)
         _rel("Artist", m, "CREATED", "Track", liked)
+        _liked(liked)
 
     def _candidate(cand_id, bridges, popularity=None):
         props = {"name": cand_id}
@@ -164,6 +196,8 @@ def seeded_graph(neo4j_driver):
             _node("Track", track_id, name=track_id, **({"liked_songs": True} if liked else {}))
             _rel("Album", album_id, "CONTAINS", "Track", track_id)
             _rel("Artist", f"{MARK}-QA", "CREATED", "Track", track_id)
+            if liked:
+                _liked(track_id)
 
     yield neo4j_driver
     neo4j_driver.execute_query(purge)

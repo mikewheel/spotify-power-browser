@@ -283,10 +283,11 @@ def test_seeder_publishes_albums_list_urls_at_seed_depth(monkeypatch):
     ]
     # every seed carries the documented discography depth
     assert all(depth == SpotifyRequestFactory.DISCOGRAPHY_SEED_DEPTH for _, depth in calls)
-    # the worklist query was parameterized with the configured threshold
+    # the worklist query was parameterized with the configured threshold, and
+    # (plan 06) traverses (:User)-[:LIKED] with a null user scope by default
     (query, kwargs), = driver.queries
-    assert "liked_songs" in query
-    assert kwargs == {"affinity_min": 3}
+    assert ":LIKED]" in query and "$user_id" in query
+    assert kwargs == {"affinity_min": 3, "user_id": None}
 
 
 def test_seed_depth_reaches_the_frontier_sweep_and_no_further():

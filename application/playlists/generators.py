@@ -59,46 +59,63 @@ class GeneratorSpec:
     params: dict = field(default_factory=dict)
 
 
+def _user_identity(user_id):
+    """Identity-params fragment for a user scope (plan 06). None (legacy /
+    any-user) contributes NOTHING so pre-multiplayer managed playlists keep
+    their params_hash — a --user run forks a per-user playlist instead."""
+    return {} if user_id is None else {"user_id": user_id}
+
+
 def build_adjacent_discoveries(max_popularity=DEFAULT_MAX_POPULARITY,
-                               min_bridges=DEFAULT_MIN_BRIDGES):
+                               min_bridges=DEFAULT_MIN_BRIDGES,
+                               user_id=None):
+    suffix = f" ({user_id})" if user_id else ""
     return GeneratorSpec(
         key="adjacent-discoveries",
-        display_name="adjacent-discoveries",
-        playlist_name="[SPB] Adjacent Discoveries",
-        identity_params={},  # tuning knobs update THE discoveries playlist, not fork one
+        display_name="adjacent-discoveries" + (f" --user {user_id}" if user_id else ""),
+        playlist_name=f"[SPB] Adjacent Discoveries{suffix}",
+        # tuning knobs update THE discoveries playlist, not fork one — but a
+        # user scope DOES fork one (each user gets their own discoveries)
+        identity_params=_user_identity(user_id),
         order_significant=True,  # ranked frontier: bridges desc, obscurity asc
         query=ADJACENT_DISCOVERIES_TRACKS_QUERY,
-        params={"max_popularity": int(max_popularity), "min_bridges": int(min_bridges)},
+        params={"max_popularity": int(max_popularity), "min_bridges": int(min_bridges),
+                "user_id": user_id},
     )
 
 
-def build_exploration_queue(artist_name):
+def build_exploration_queue(artist_name, user_id=None):
     artist_name = (artist_name or "").strip()
     if not artist_name:
         raise ValueError("exploration-queue requires an artist name argument")
+    suffix = f" ({user_id})" if user_id else ""
     return GeneratorSpec(
         key="exploration-queue",
-        display_name=f"exploration-queue {artist_name}",
-        playlist_name=f"[SPB] Exploration Queue - {artist_name}",
-        identity_params={"artist_name": artist_name.lower()},  # one playlist per artist
+        display_name=f"exploration-queue {artist_name}"
+                     + (f" --user {user_id}" if user_id else ""),
+        playlist_name=f"[SPB] Exploration Queue - {artist_name}{suffix}",
+        # one playlist per (artist, user scope)
+        identity_params={"artist_name": artist_name.lower(), **_user_identity(user_id)},
         order_significant=True,  # a queue: oldest album first, play through
         query=EXPLORATION_QUEUE_TRACKS_QUERY,
-        params={"artist_name": artist_name},
+        params={"artist_name": artist_name, "user_id": user_id},
     )
 
 
 def build_generator(name, generator_args=(),
                     max_popularity=DEFAULT_MAX_POPULARITY,
-                    min_bridges=DEFAULT_MIN_BRIDGES):
+                    min_bridges=DEFAULT_MIN_BRIDGES,
+                    user_id=None):
     """CLI dispatcher: generator name + positional args -> GeneratorSpec."""
     if name == "adjacent-discoveries":
         if generator_args:
             raise ValueError("adjacent-discoveries takes no positional arguments "
                              "(use --max-popularity / --min-bridges)")
         return build_adjacent_discoveries(max_popularity=max_popularity,
-                                          min_bridges=min_bridges)
+                                          min_bridges=min_bridges,
+                                          user_id=user_id)
     if name == "exploration-queue":
-        return build_exploration_queue(" ".join(generator_args))
+        return build_exploration_queue(" ".join(generator_args), user_id=user_id)
     raise ValueError(f"unknown generator {name!r}; expected one of {GENERATOR_NAMES}")
 
 
