@@ -89,7 +89,11 @@ LIMIT $limit
 
 
 def _unmatched_names(driver, names):
-    result = run_readonly_query(driver, RESOLVE_ARTIST_NAMES_QUERY, params={'names': names})
+    if not names:
+        return []
+    result = run_readonly_query(
+        driver, RESOLVE_ARTIST_NAMES_QUERY, params={'names': names}, row_cap=len(names)
+    )
     return [row['input_name'] for row in result['rows'] if row['matches'] == 0]
 
 
@@ -100,7 +104,9 @@ def collaborators_of(driver, artist_names, limit=25):
         'lower_names': [name.lower() for name in artist_names],
         'limit': limit,
     }
-    result = run_readonly_query(driver, COLLABORATORS_OF_QUERY, params=params)
+    # The tool's own LIMIT is the cap here — the two knobs must agree, or the
+    # global row cap would silently truncate an explicitly requested limit.
+    result = run_readonly_query(driver, COLLABORATORS_OF_QUERY, params=params, row_cap=limit)
     return {
         'collaborators': result['rows'],
         'unmatched_names': _unmatched_names(driver, artist_names),
@@ -116,14 +122,14 @@ def discover_adjacent(driver, seed_artist_names=None, max_popularity=40, min_bri
             'max_popularity': max_popularity,
             'min_bridges': min_bridges,
             'limit': limit,
-        })
+        }, row_cap=limit)
         unmatched = _unmatched_names(driver, seed_artist_names)
     else:
         result = run_readonly_query(driver, DISCOVER_ADJACENT_QUERY, params={
             'max_popularity': max_popularity,
             'min_bridges': min_bridges,
             'limit': limit,
-        })
+        }, row_cap=limit)
         unmatched = []
     return {
         'discoveries': result['rows'],

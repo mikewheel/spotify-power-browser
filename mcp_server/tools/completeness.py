@@ -35,7 +35,9 @@ LIMIT $limit
 
 def artist_completeness(driver, artist_name, limit=10):
     """Liked-vs-catalog ratio for artists matching the name (see module docstring for caveats)."""
-    result = run_readonly_query(driver, ARTIST_COMPLETENESS_QUERY, params={'name': artist_name, 'limit': limit})
+    result = run_readonly_query(
+        driver, ARTIST_COMPLETENESS_QUERY, params={'name': artist_name, 'limit': limit}, row_cap=limit
+    )
     return {
         'mode': COMPLETENESS_MODE,
         'explanation': COMPLETENESS_EXPLANATION,

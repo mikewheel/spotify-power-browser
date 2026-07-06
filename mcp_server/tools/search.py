@@ -31,10 +31,14 @@ LIMIT $limit
 
 
 def find_artist(driver, name, limit=25):
-    result = run_readonly_query(driver, FIND_ARTIST_QUERY, params={'name': name, 'limit': limit})
+    result = run_readonly_query(
+        driver, FIND_ARTIST_QUERY, params={'name': name, 'limit': limit}, row_cap=limit
+    )
     return {'matches': result['rows'], 'match_count': result['row_count']}
 
 
 def find_track(driver, name, limit=25):
-    result = run_readonly_query(driver, FIND_TRACK_QUERY, params={'name': name, 'limit': limit})
+    result = run_readonly_query(
+        driver, FIND_TRACK_QUERY, params={'name': name, 'limit': limit}, row_cap=limit
+    )
     return {'matches': result['rows'], 'match_count': result['row_count']}
