@@ -13,6 +13,11 @@ CREATE (s:Section {
 // end_ms may be null: an open section runs until the next boundary (which
 // closes it below on its own insert) or the track end.
 SET s.end_ms = section.end_ms
+// Provenance: true only when the caller supplied end_ms explicitly.
+// Chain-derived ends (set by a later boundary's insert) keep this false, so
+// undo/nudge can re-derive or reopen them WITHOUT ever destroying a
+// user-provided end that merely coincides with the next boundary's start.
+SET s.end_ms_explicit = section.end_ms IS NOT NULL
 
 CREATE (t)-[:HAS_SECTION]->(s)
 

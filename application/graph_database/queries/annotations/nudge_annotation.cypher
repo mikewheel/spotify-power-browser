@@ -11,7 +11,12 @@ FOREACH (n IN CASE WHEN a:Note AND a.at_ms IS NOT NULL THEN [a] ELSE [] END |
 FOREACH (c IN CASE WHEN a:Cue THEN [a] ELSE [] END |
     SET c.at_ms = $at_ms
 )
-FOREACH (p IN CASE WHEN prev IS NOT NULL AND a:Section AND prev.end_ms = a.start_ms THEN [prev] ELSE [] END |
+// Only chain-derived previous ends move with the boundary: an explicit
+// prev.end_ms that happens to equal this start (contiguous entry) must not
+// be dragged. Legacy nodes without the flag are treated as explicit (safe).
+FOREACH (p IN CASE WHEN prev IS NOT NULL AND a:Section AND prev.end_ms = a.start_ms
+                        AND coalesce(prev.end_ms_explicit, prev.end_ms IS NOT NULL) = false
+              THEN [prev] ELSE [] END |
     SET p.end_ms = $at_ms
 )
 FOREACH (s IN CASE WHEN a:Section THEN [a] ELSE [] END |

@@ -99,6 +99,29 @@ def test_undo_section_reopens_previous_end(writer):
     assert sections[0]["end_ms"] is None  # reopened: runs to track end again
 
 
+def test_undo_contiguous_boundary_preserves_explicit_previous_end(writer):
+    """The natural contiguous case: the next section starts exactly at the
+    explicitly-entered end. Undoing that boundary must NOT erase the
+    user-provided end (only chain-derived ends reopen)."""
+    writer.add_section(TRACK_ID, 0, 0, "intro", end_ms=30000)
+    verse = writer.add_section(TRACK_ID, 1, 30000, "verse")
+    writer.undo(verse)
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert len(sections) == 1
+    assert sections[0]["end_ms"] == 30000  # explicit end survives the undo
+
+
+def test_nudge_contiguous_boundary_preserves_explicit_previous_end(writer):
+    """Same conflation on the nudge path: moving a boundary must not drag an
+    explicit previous end that merely coincides with the old start."""
+    writer.add_section(TRACK_ID, 0, 0, "intro", end_ms=30000)
+    verse = writer.add_section(TRACK_ID, 1, 30000, "verse")
+    writer.nudge(verse, 30500)
+    sections = writer.fetch_annotations(TRACK_ID)["sections"]
+    assert sections[1]["start_ms"] == 30500
+    assert sections[0]["end_ms"] == 30000  # explicit end did not move
+
+
 def test_writes_against_a_track_missing_from_the_graph_raise(writer, neo4j_driver):
     """The insert Cypher MATCHes the Track (no MERGE, no placeholders): when
     the track isn't in the graph the query is a silent no-op at the database
