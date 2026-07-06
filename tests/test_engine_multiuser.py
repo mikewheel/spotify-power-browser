@@ -22,7 +22,8 @@ def env(mock_base, monkeypatch, tmp_path):
                         tmp_path / "spotify_refresh_token.secret")
     monkeypatch.setattr(engine, "SPOTIFY_API_TOKEN_FILE", tmp_path / "spotify_api_token.secret")
 
-    token_store.save_tokens("mockuser", "mock-access-token", "mock-refresh-token")
+    token_store.save_tokens("mockuser", "mock-access-token", "mock-refresh-token",
+                            claim_primary=True)  # first login -> primary + legacy mirror
     token_store.save_tokens("mockuser2", "mock-access-token-mockuser2",
                             "mock-refresh-token-mockuser2")
 

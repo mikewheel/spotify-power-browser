@@ -59,7 +59,7 @@ def test_login_page_is_the_add_a_user_flow(client):
 
 def test_login_page_lists_authorized_users(svc, client):
     from application.spotify_authentication import token_store
-    token_store.save_tokens("alice", "t", "r")
+    token_store.save_tokens("alice", "t", "r", claim_primary=True)
     resp = client.simulate_get("/login")
     assert "alice" in resp.text
     assert "primary" in resp.text

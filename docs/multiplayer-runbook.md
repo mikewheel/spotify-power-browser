@@ -41,7 +41,10 @@ files on every save/refresh, because:
   no-arg callers like the playlist sync and backfills) reads the legacy files.
 
 Don't delete the legacy files or the `.primary_user` marker. The primary is
-sticky by design; a second user authorizing never steals it.
+sticky by design; a second user authorizing never steals it. Only a **login**
+through the OAuth callback can claim an empty primary slot — background token
+refreshes never do, so an unattended crawl can't silently promote an arbitrary
+user while the slot is vacant (see §4).
 
 ## 1. Spotify dashboard allowlist (development mode = 25 users)
 
@@ -117,7 +120,9 @@ rm -r secrets/users/<their_id>/
 
 (If they were the primary user, also remove `secrets/users/.primary_user` and
 the legacy `secrets/spotify_*.secret` files, then re-authorize whoever should
-be primary next — the next login becomes the new primary.)
+be primary next — the next **login** becomes the new primary. The slot stays
+empty until that login: other users' background token refreshes keep working
+but never claim it.)
 
 ## 5. Follow-ups on other branches (integration notes)
 

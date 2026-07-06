@@ -35,8 +35,9 @@ def test_two_token_dirs_coexist(store):
     assert token_store.read_refresh_token("alice") == "refresh-a"
 
 
-def test_first_user_becomes_primary_and_mirrors_to_legacy_files(store):
-    token_store.save_tokens("alice", "token-a", "refresh-a")
+def test_first_login_save_becomes_primary_and_mirrors_to_legacy_files(store):
+    # claim_primary=True is what the OAuth callback (and only it) passes.
+    token_store.save_tokens("alice", "token-a", "refresh-a", claim_primary=True)
 
     assert token_store.get_primary_user_id() == "alice"
     # the compose auth-gate healthcheck's file:
@@ -45,17 +46,17 @@ def test_first_user_becomes_primary_and_mirrors_to_legacy_files(store):
 
 
 def test_second_user_does_not_steal_primary_or_clobber_legacy_files(store):
-    token_store.save_tokens("alice", "token-a", "refresh-a")
-    token_store.save_tokens("bob", "token-b", "refresh-b")
+    token_store.save_tokens("alice", "token-a", "refresh-a", claim_primary=True)
+    token_store.save_tokens("bob", "token-b", "refresh-b", claim_primary=True)
 
-    assert token_store.get_primary_user_id() == "alice"
+    assert token_store.get_primary_user_id() == "alice"  # sticky by design
     assert (store / "spotify_api_token.secret").read_text() == "token-a"  # untouched
     assert (store / "spotify_refresh_token.secret").read_text() == "refresh-a"
 
 
 def test_primary_refresh_keeps_legacy_files_in_sync(store):
-    token_store.save_tokens("alice", "token-a-1", "refresh-a-1")
-    token_store.save_tokens("alice", "token-a-2", "refresh-a-2")
+    token_store.save_tokens("alice", "token-a-1", "refresh-a-1", claim_primary=True)
+    token_store.save_tokens("alice", "token-a-2", "refresh-a-2")  # refresh-style save
 
     assert token_store.read_api_token("alice") == "token-a-2"
     assert (store / "spotify_api_token.secret").read_text() == "token-a-2"
@@ -67,6 +68,30 @@ def test_save_without_refresh_token_keeps_existing_refresh(store):
 
     assert token_store.read_api_token("alice") == "token-2"
     assert token_store.read_refresh_token("alice") == "refresh-1"
+
+
+def test_refresh_save_does_not_claim_the_primary_slot(store):
+    # Runbook §4 (right to be forgotten): after the operator removes the
+    # primary marker + legacy files, "the next LOGIN becomes the new primary".
+    # A background 401-refresh save (the default, claim_primary=False) must
+    # therefore NEVER claim the empty slot — otherwise an arbitrary remaining
+    # user's hourly token refresh silently becomes the sticky primary and
+    # mirrors their bearer into the legacy files.
+    token_store.save_tokens("bob", "token-b", "refresh-b")  # refresh-style save
+
+    assert token_store.get_primary_user_id() is None
+    assert not (store / "spotify_api_token.secret").exists()   # no legacy mirror
+    assert not (store / "spotify_refresh_token.secret").exists()
+
+
+def test_only_an_explicit_login_save_claims_primary(store):
+    # The OAuth callback (a deliberate human login) is the ONLY caller that
+    # passes claim_primary=True.
+    token_store.save_tokens("bob", "token-b", "refresh-b")                        # refresh
+    token_store.save_tokens("carol", "token-c", "refresh-c", claim_primary=True)  # login
+
+    assert token_store.get_primary_user_id() == "carol"
+    assert (store / "spotify_api_token.secret").read_text() == "token-c"
 
 
 def test_user_id_none_targets_legacy_files_only(store):
@@ -115,8 +140,8 @@ def _wire(monkeypatch, tmp_path, mock_base):
 
 def test_refresh_with_user_id_rewrites_that_users_files(monkeypatch, tmp_path, mock_base):
     _wire(monkeypatch, tmp_path, mock_base)
-    # Two authorized users; alice is primary (first in).
-    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token")
+    # Two authorized users; mockuser is primary (first login).
+    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token", claim_primary=True)
     token_store.save_tokens("mockuser2", "expired-2", "mock-refresh-token-mockuser2")
 
     rt.refresh_spotify_auth(user_id="mockuser2")
@@ -130,9 +155,32 @@ def test_refresh_with_user_id_rewrites_that_users_files(monkeypatch, tmp_path, m
 
 def test_refresh_of_primary_user_keeps_legacy_mirror_fresh(monkeypatch, tmp_path, mock_base):
     _wire(monkeypatch, tmp_path, mock_base)
-    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token")
+    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token", claim_primary=True)
 
     rt.refresh_spotify_auth(user_id="mockuser")
 
     assert token_store.read_api_token("mockuser") == "mock-access-token"
     assert (tmp_path / "spotify_api_token.secret").read_text() == "mock-access-token"
+
+
+def test_refresh_during_the_primary_deletion_window_does_not_promote(monkeypatch, tmp_path,
+                                                                     mock_base):
+    # Runbook §4 end-to-end: the primary (mockuser) is forgotten — marker,
+    # token dir, and legacy files all removed — and BEFORE the intended new
+    # primary logs in, a still-running crawl 401s and refreshes mockuser2.
+    # That refresh must not promote mockuser2 or resurrect the legacy files.
+    import shutil
+    _wire(monkeypatch, tmp_path, mock_base)
+    token_store.save_tokens("mockuser", "expired-1", "mock-refresh-token", claim_primary=True)
+    token_store.save_tokens("mockuser2", "expired-2", "mock-refresh-token-mockuser2")
+
+    (tmp_path / "users" / ".primary_user").unlink()
+    shutil.rmtree(tmp_path / "users" / "mockuser")
+    (tmp_path / "spotify_api_token.secret").unlink()
+    (tmp_path / "spotify_refresh_token.secret").unlink()
+
+    rt.refresh_spotify_auth(user_id="mockuser2")
+
+    assert token_store.read_api_token("mockuser2") == "mock-access-token-mockuser2"
+    assert token_store.get_primary_user_id() is None            # slot stays empty
+    assert not (tmp_path / "spotify_api_token.secret").exists()  # no legacy resurrection

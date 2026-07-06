@@ -191,10 +191,12 @@ class SpotifyAuthCodeResource:
         user_id = me["id"]
         display_name = me.get("display_name") or user_id
 
-        # Files under secrets/users/<id>/; the FIRST user becomes primary and
-        # is mirrored to the legacy files (the compose auth gate's healthcheck
-        # watches secrets/spotify_api_token.secret).
-        token_store.save_tokens(user_id, access_token, refresh_token)
+        # Files under secrets/users/<id>/; the FIRST user to LOG IN becomes
+        # primary and is mirrored to the legacy files (the compose auth gate's
+        # healthcheck watches secrets/spotify_api_token.secret). This callback
+        # is the ONLY caller allowed to claim the primary slot — background
+        # refresh saves never do (token_store.save_tokens docstring).
+        token_store.save_tokens(user_id, access_token, refresh_token, claim_primary=True)
         primary = token_store.get_primary_user_id()
 
         resp.status = falcon.HTTP_200

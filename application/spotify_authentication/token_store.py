@@ -127,13 +127,19 @@ def read_refresh_token(user_id=None):
     return refresh_token_file(user_id).read_text()
 
 
-def save_tokens(user_id, access_token, refresh_token=None):
+def save_tokens(user_id, access_token, refresh_token=None, claim_primary=False):
     """Persist tokens for a user.
 
     - user_id=None: legacy files only (pre-multiplayer behavior).
-    - user_id given: the namespaced files; AND, when this user is (or is
-      becoming, if none is recorded yet) the primary, mirror to the legacy
-      files so the compose healthcheck gate and legacy consumers stay live.
+    - user_id given: the namespaced files; AND, when this user IS the
+      primary, mirror to the legacy files so the compose healthcheck gate
+      and legacy consumers stay live.
+    - claim_primary=True: additionally claim the primary slot when none is
+      recorded. ONLY the OAuth callback (a deliberate human login) passes
+      this — background refresh saves must never claim an empty slot, or an
+      arbitrary user's hourly 401 refresh would silently become the sticky
+      primary during the runbook's §4 primary-deletion window ("the next
+      LOGIN becomes the new primary").
     """
     if user_id is None:
         LEGACY_API_TOKEN_FILE.write_text(access_token)
@@ -147,7 +153,10 @@ def save_tokens(user_id, access_token, refresh_token=None):
     if refresh_token is not None:
         (directory / REFRESH_TOKEN_FILENAME).write_text(refresh_token)
 
-    primary = set_primary_user_id(user_id)  # no-op unless unset
+    if claim_primary:
+        primary = set_primary_user_id(user_id)  # no-op (sticky) unless unset
+    else:
+        primary = get_primary_user_id()
     if primary == user_id:
         LEGACY_API_TOKEN_FILE.write_text(access_token)
         if refresh_token is not None:
