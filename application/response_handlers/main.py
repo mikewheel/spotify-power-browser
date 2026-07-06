@@ -21,6 +21,8 @@ from application.response_handlers import (
     GetSeveralTracksResponseHandler,
     GetSeveralAlbumsResponseHandler,
     GetSeveralArtistsResponseHandler,
+    GetAlbumsOfArtistResponseHandler,
+    GetTracksOfAlbumResponseHandler,
 )
 
 logger = get_logger(__name__)
@@ -54,14 +56,23 @@ class SpotifyResponseController:
         "artists": GetSeveralArtistsResponseHandler,
     }
 
+    # Paginated sub-resource endpoints (GET /v1/{type}/{id}/{sub}) route by
+    # their (parent type, sub-resource) segment pair: the id segment varies per
+    # request, so they can't live in the exact URL_PATTERN mapping above.
+    SUBRESOURCE_RESPONSE_HANDLER_MAPPING = {
+        ("artists", "albums"): GetAlbumsOfArtistResponseHandler,
+        ("albums", "tracks"): GetTracksOfAlbumResponseHandler,
+    }
+
     @classmethod
     def resolve_handler(cls, request_url):
         """Return the response handler class for a request URL.
 
-        Batch endpoints (GET /v1/{type}?ids=...) route by resource type; every
-        other URL is normalized (strip port/query/fragment, and the trailing id
-        segment for non-/me URLs) and looked up by path. Raises ValueError if no
-        handler matches.
+        Batch endpoints (GET /v1/{type}?ids=...) route by resource type;
+        sub-resources (GET /v1/{type}/{id}/{sub}) route by their (type, sub)
+        segment pair; every other URL is normalized (strip port/query/fragment,
+        and the trailing id segment for non-/me URLs) and looked up by path.
+        Raises ValueError if no handler matches.
         """
         parsed = urlparse(request_url)
 
@@ -72,6 +83,15 @@ class SpotifyResponseController:
             except KeyError:
                 raise ValueError(
                     f'No batch response handler for resource type "{resource_type}": {request_url}'
+                )
+
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) == 4 and segments[0] == "v1" and segments[1] != "me":
+            try:
+                return cls.SUBRESOURCE_RESPONSE_HANDLER_MAPPING[(segments[1], segments[3])]
+            except KeyError:
+                raise ValueError(
+                    f'No sub-resource response handler maps to the following URL: {request_url}'
                 )
 
         normalized = parsed._replace(
