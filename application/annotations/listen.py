@@ -24,6 +24,7 @@ Live Spotify use requires the `user-read-playback-state` scope, which lands
 with the bundled re-auth (plans README "Do these first"; plan 04 T3).
 """
 import argparse
+import os
 import select
 import sys
 import termios
@@ -325,6 +326,24 @@ def fetch_playback_from_api():
 
 # --- thin TTY layer (stdlib only: termios/tty/select) ------------------------
 
+def _read_key(stdin_fd):
+    """One keypress as a str, read straight off the raw fd. None on EOF.
+
+    select() watches the KERNEL buffer of the fd, so the read must come from
+    the same place. Reading through the buffered sys.stdin TextIOWrapper
+    slurps EVERY pending byte into a Python-level buffer select() can't see:
+    a burst (keyboard auto-repeat on the nudge keys, a paste) would yield one
+    processed key and strand the rest until some future keypress — and
+    input() in prompt() reads fd 0 directly, bypassing that buffer, so
+    stranded hotkeys would survive prompts and fire much later. os.read
+    leaves the remaining bytes in the kernel buffer where select() keeps
+    reporting them, one key per loop iteration."""
+    data = os.read(stdin_fd, 1)
+    if not data:
+        return None
+    return data.decode("utf-8", errors="replace")
+
+
 def _redraw(line):
     sys.stdout.write("\r\x1b[K" + line)
     sys.stdout.flush()
@@ -395,9 +414,11 @@ def main(argv=None):
             for notice in tracker.drain_notices():
                 sys.stdout.write("\r\x1b[K!! " + notice + "\n")
             _redraw(tracker.status_line())
-            readable, _, _ = select.select([sys.stdin], [], [], 0.25)
+            readable, _, _ = select.select([stdin_fd], [], [], 0.25)
             if readable:
-                key = sys.stdin.read(1)
+                key = _read_key(stdin_fd)
+                if key is None:
+                    break  # stdin closed (EOF): end the session cleanly
                 feedback = tracker.handle_key(key)
                 if feedback:
                     sys.stdout.write("\r\x1b[K  " + feedback + "\n")

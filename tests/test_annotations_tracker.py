@@ -1,10 +1,13 @@
 """Offline tests for PlaybackTracker (plan 04 T4): the poll-and-dispatch core
 of `listen`, driven with a fake fetch, fake clock, scripted prompts, and a fake
 writer — no TTY, no HTTP, no Neo4j."""
+import os
+import select
+
 import pytest
 
 from application.annotations import model
-from application.annotations.listen import NUDGE_STEP_MS, PlaybackTracker
+from application.annotations.listen import NUDGE_STEP_MS, PlaybackTracker, _read_key
 
 
 class FakeClock:
@@ -264,6 +267,34 @@ def test_quit_and_unmapped_keys():
     assert not tracker.quit_requested
     tracker.handle_key("q")
     assert tracker.quit_requested
+
+
+def test_read_key_burst_leaves_pending_keys_visible_to_select():
+    """A burst (auto-repeat on the nudge keys, a paste) arrives as multiple
+    bytes at once. Each read must take exactly ONE byte off the KERNEL buffer
+    so select() keeps reporting the rest — the buffered sys.stdin.read(1)
+    slurped the whole burst into a Python-level buffer select() can't see,
+    stranding all but the first key until a future keypress."""
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"+++++q")
+        keys = []
+        while select.select([read_fd], [], [], 0)[0]:
+            keys.append(_read_key(read_fd))
+        # every key surfaced, one per select()-gated read, none stranded
+        assert keys == ["+", "+", "+", "+", "+", "q"]
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+def test_read_key_returns_none_on_eof():
+    read_fd, write_fd = os.pipe()
+    os.close(write_fd)  # writer gone: reads see EOF
+    try:
+        assert _read_key(read_fd) is None
+    finally:
+        os.close(read_fd)
 
 
 def test_session_summary_counts_by_type_and_track():
