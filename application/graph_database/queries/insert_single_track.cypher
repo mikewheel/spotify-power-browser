@@ -27,6 +27,10 @@ ON CREATE SET
 
 MERGE (t)<-[:CONTAINS]-(al)
 
+// Neo4j requires a WITH between a MERGE and a following CALL subquery; 5.26-line
+// servers reject the bare form as a syntax error. Pass the merged nodes forward.
+WITH track, t, al
+
 // Link the artists credited on the track's album. Independent CALL subquery so
 // an empty album.artists list can't drop the track's row before its own
 // performing artists are linked below.
