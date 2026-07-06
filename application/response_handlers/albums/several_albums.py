@@ -18,7 +18,9 @@ class GetSeveralAlbumsResponseHandler(SeveralResourcesResponseHandler):
       - batch-follows their track credits so frontier artists land enriched
         with popularity/followers,
       - follows the nested album.tracks.next for >50-track albums (same
-        depth: pagination continues a resource, it isn't a hop).
+        depth, and independent of the depth gate: pagination continues a
+        resource, it isn't a hop -- matching the engine's unconditional
+        top-level `next` follow, which fires even at depth 0).
     All three are gated on the flag so default (liked-songs) crawls are
     byte-for-byte unchanged.
     """
@@ -47,6 +49,24 @@ class GetSeveralAlbumsResponseHandler(SeveralResourcesResponseHandler):
             )
 
     def follow_links(self):
+        if CRAWL_ARTIST_DISCOGRAPHIES:
+            # Albums with more than 50 tracks embed only their first page;
+            # follow the nested tracks.next like the engine follows top-level
+            # pagination: at the SAME depth and BEFORE the depth gate below.
+            # Pagination continues a resource, it isn't a hop -- and since
+            # write_to_neo4j persists the embedded first-50 regardless of
+            # depth, gating this continuation on depth would silently truncate
+            # >50-track albums that arrive at depth 0 (review fix). The
+            # continuation is never depth-decremented, so the tracks-page
+            # chain can't recurse past pagination's own end.
+            for album in self.items:
+                next_tracks_url = (album.get("tracks") or {}).get("next")
+                if next_tracks_url:
+                    SpotifyRequestFactory.request_url(
+                        url=next_tracks_url,
+                        depth_of_search=self.depth_of_search,
+                    )
+
         if self.depth_of_search <= 0:
             return
 
@@ -64,16 +84,6 @@ class GetSeveralAlbumsResponseHandler(SeveralResourcesResponseHandler):
                 for track in (album.get("tracks") or {}).get("items", [])
                 for artist in track["artists"]
             ]
-            # Albums with more than 50 tracks embed only their first page;
-            # follow the nested tracks.next like the engine follows top-level
-            # pagination (same depth -- a continuation of this album).
-            for album in self.items:
-                next_tracks_url = (album.get("tracks") or {}).get("next")
-                if next_tracks_url:
-                    SpotifyRequestFactory.request_url(
-                        url=next_tracks_url,
-                        depth_of_search=self.depth_of_search,
-                    )
 
         SpotifyRequestFactory.request_batch(
             "artists",
