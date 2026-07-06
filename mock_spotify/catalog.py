@@ -144,8 +144,15 @@ def get_by_id(resource_type, identifier):
     return None
 
 
-def liked_songs_page(offset, limit):
-    """A page of saved tracks with a self-referential `next` link (or null)."""
+def liked_songs_page(offset, limit, user_id=None):
+    """A page of saved tracks with a self-referential `next` link (or null).
+
+    Multiplayer (plan 06 T7): the page is answered PER BEARER. The default /
+    primary user keeps the original full-catalog liked set; MOCK_USER_2_ID
+    gets the overlapping slice defined in the multiplayer section below.
+    """
+    if user_id == MOCK_USER_2_ID:
+        return _user2_liked_songs_page(offset, limit)
     items = [
         {"added_at": "2021-01-01T00:00:00Z", "track": track(i)}
         for i in range(offset, min(offset + limit, N_TRACKS))
@@ -481,15 +488,18 @@ _PLAYLISTS = {}
 _PLAYLIST_SEQ = {"playlist": 0, "snapshot": 0}
 
 
-def current_user():
-    """GET /v1/me payload: the fake user playlists get created under."""
+def current_user(user_id=None):
+    """GET /v1/me payload — answered per bearer since plan 06 (default: the
+    primary mock user, preserving the plan-08 behavior)."""
+    user_id = user_id or MOCK_USER_ID
+    display_names = {MOCK_USER_ID: "Mock User", MOCK_USER_2_ID: "Mock User Two"}
     return {
-        "id": MOCK_USER_ID,
-        "display_name": "Mock User",
+        "id": user_id,
+        "display_name": display_names.get(user_id, f"Mock {user_id}"),
         "type": "user",
-        "uri": f"spotify:user:{MOCK_USER_ID}",
-        "href": f"{PUBLIC_BASE_URL}/v1/users/{MOCK_USER_ID}",
-        "external_urls": {"spotify": f"https://open.spotify.com/user/{MOCK_USER_ID}"},
+        "uri": f"spotify:user:{user_id}",
+        "href": f"{PUBLIC_BASE_URL}/v1/users/{user_id}",
+        "external_urls": {"spotify": f"https://open.spotify.com/user/{user_id}"},
     }
 
 
@@ -618,3 +628,85 @@ def change_playlist_details(playlist_id, name=None, description=None):
     if description is not None:
         state["description"] = description
     return True
+
+
+###
+# Multiplayer (plan 06 T7) — a second user + per-bearer identity. Appended,
+# and reset-clean: the only mutable state is the token-exchange knob below.
+#
+# Token scheme (deterministic):
+#   primary user  ("mockuser")   access "mock-access-token"
+#                                refresh "mock-refresh-token"     (unchanged)
+#   any other id  (e.g. "mockuser2")  access  "mock-access-token-<id>"
+#                                     refresh "mock-refresh-token-<id>"
+# A request with no/unknown Authorization resolves to the primary user, so
+# every pre-multiplayer test and crawl keeps working unchanged.
+#
+# User 2's liked set PARTIALLY OVERLAPS user 1's catalog slice by design:
+#   - base tracks 20..39 (user 1 likes ALL base tracks, so these are shared)
+#   - two discography tracks user 1 never liked (user-2 exclusives, one of
+#     them a frontier collab) — so overlap queries have both a real
+#     intersection AND per-user differences to return.
+###
+
+MOCK_USER_2_ID = "mockuser2"
+
+USER2_LIKED_OVERLAP_RANGE = range(20, 40)
+USER2_EXCLUSIVE_TRACK_IDS = ("dtk000100", "dtk010001")
+
+_TOKEN_EXCHANGE = {"user": MOCK_USER_ID}
+
+
+def user2_liked_track_ids():
+    """User 2's full liked set, in page order (shared slice, then exclusives)."""
+    return [f"trk{i:06d}" for i in USER2_LIKED_OVERLAP_RANGE] + list(USER2_EXCLUSIVE_TRACK_IDS)
+
+
+def _user2_liked_songs_page(offset, limit):
+    items_all = [
+        {"added_at": "2023-05-05T00:00:00Z", "track": get_by_id("tracks", track_id)}
+        for track_id in user2_liked_track_ids()
+    ]
+    return _paging(items_all, offset, limit, href_base=f"{PUBLIC_BASE_URL}/v1/me/tracks")
+
+
+def access_token_for(user_id):
+    return "mock-access-token" if user_id == MOCK_USER_ID else f"mock-access-token-{user_id}"
+
+
+def refresh_token_for(user_id):
+    return "mock-refresh-token" if user_id == MOCK_USER_ID else f"mock-refresh-token-{user_id}"
+
+
+def user_from_token(token):
+    """Inverse of the *_token_for scheme. Unknown/absent -> the primary user
+    (permissive default: pre-multiplayer callers send no auth at all)."""
+    for prefix in ("mock-access-token-", "mock-refresh-token-"):
+        if isinstance(token, str) and token.startswith(prefix) and token[len(prefix):]:
+            return token[len(prefix):]
+    return MOCK_USER_ID
+
+
+def user_from_bearer(auth_header):
+    """Resolve the acting user from an Authorization header value."""
+    if isinstance(auth_header, str) and auth_header.startswith("Bearer "):
+        return user_from_token(auth_header[len("Bearer "):])
+    return MOCK_USER_ID
+
+
+def configure_token_exchange(cfg):
+    """Apply the token_user knob from a /_control/config payload: selects
+    which user the NEXT authorization_code exchanges mint tokens for
+    (falsy -> back to the primary user). Ignores unrelated keys."""
+    if "token_user" in cfg:
+        _TOKEN_EXCHANGE["user"] = cfg["token_user"] or MOCK_USER_ID
+    return {"token_user": _TOKEN_EXCHANGE["user"]}
+
+
+def reset_token_exchange():
+    """Back to minting for the primary user (POST /_control/reset)."""
+    _TOKEN_EXCHANGE["user"] = MOCK_USER_ID
+
+
+def token_exchange_user():
+    return _TOKEN_EXCHANGE["user"]
