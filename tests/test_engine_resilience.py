@@ -30,7 +30,12 @@ def engine_env(mock_base, monkeypatch):
 def _call(url, depth=0):
     # Deliberately NO user_id key: pins the pre-multiplayer envelope shape
     # (plan 06 back-compat with in-flight messages).
-    engine.make_spotify_api_call(None, None, None, json.dumps({"request_url": url, "depth_of_search": depth}))
+    #
+    # Drive _consume_request directly: make_spotify_api_call is now a thin pika
+    # wrapper that SWALLOWS give-up exceptions to keep the channel alive, so the
+    # give-up-and-roll-back behavior under test lives in _consume_request. The
+    # wrapper's swallowing is covered by tests/test_engine_consumer_resilience.py.
+    engine._consume_request(json.dumps({"request_url": url, "depth_of_search": depth}))
 
 
 def test_429_is_retried_with_capped_backoff_then_succeeds(engine_env, mock_base):

@@ -81,7 +81,7 @@ def resolve_effective_user(user_id):
     return user_id
 
 
-def make_spotify_api_call(ch, method, properties, body):
+def _consume_request(body):
     msg = loads(body)
     logger.info(f'Received message from queue:\n{pformat(msg)}')
 
@@ -253,33 +253,53 @@ def make_spotify_api_call(ch, method, properties, body):
             return
 
 
+def make_spotify_api_call(ch, method, properties, body):
+    """Pika consumer callback. A single request must NEVER tear down the
+    consumer: under auto_ack an exception raised here propagates into pika and
+    closes the channel, and the restart loop below then reconnects — but any
+    request published during that window is lost. Give-up paths in
+    _consume_request already roll back the dedup mark; anything else is logged
+    and skipped so the channel stays alive and later requests (e.g. the depth-0
+    frontier-artist sweep of a discography crawl) keep flowing."""
+    try:
+        _consume_request(body)
+    except Exception:
+        logger.exception(
+            'Error processing a request; skipping it to keep the consumer alive.'
+        )
+
+
 def entrypoint():
-    connection, channel = connect_to_rabbitmq_exchange(
-        exchange_name=RequestsExchange.EXCHANGE_NAME.value,
-        exchange_type=RequestsExchange.EXCHANGE_TYPE.value
-    )
-
-    queue_name = bind_queue_to_exchange(
-        channel=channel,
-        exchange_name=RequestsExchange.EXCHANGE_NAME.value,
-        exchange_type=RequestsExchange.EXCHANGE_TYPE.value,
-        routing_key=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value,
-        queue_name=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value  # Mimics the behavior of the default exchange
-    )
-
-    channel.basic_consume(
-        queue=queue_name,
-        on_message_callback=make_spotify_api_call,
-        auto_ack=True
-    )
-
+    # The full setup (connect -> bind -> consume) lives INSIDE the loop so a
+    # closed channel/connection — an unhandled callback error, a broker
+    # restart, a heartbeat timeout — is recovered by RECONNECTING. The previous
+    # version set up once outside the loop and re-called start_consuming() on
+    # the already-closed channel, hot-spinning forever ("Channel is closed.")
+    # while every published request drained into the void. The sleep bounds the
+    # retry rate when the broker is unreachable.
     while True:
         try:
+            connection, channel = connect_to_rabbitmq_exchange(
+                exchange_name=RequestsExchange.EXCHANGE_NAME.value,
+                exchange_type=RequestsExchange.EXCHANGE_TYPE.value
+            )
+            queue_name = bind_queue_to_exchange(
+                channel=channel,
+                exchange_name=RequestsExchange.EXCHANGE_NAME.value,
+                exchange_type=RequestsExchange.EXCHANGE_TYPE.value,
+                routing_key=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value,
+                queue_name=RequestsExchange.ROUTING_KEY_MAKE_API_CALL.value  # Mimics the behavior of the default exchange
+            )
+            channel.basic_consume(
+                queue=queue_name,
+                on_message_callback=make_spotify_api_call,
+                auto_ack=True
+            )
             logger.info(f'Starting to consume from queue {queue_name}')
             channel.start_consuming()
         except Exception as e:
-            logger.error(e)
-            logger.info(f'Restarting...')
+            logger.error(f'Consumer connection failed ({e!r}); reconnecting in 5s...')
+            sleep(5)
 
 
 if __name__ == '__main__':

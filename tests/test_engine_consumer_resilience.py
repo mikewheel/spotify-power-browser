@@ -1,0 +1,59 @@
+"""The engine consumer must survive a bad request and reconnect on channel loss.
+
+Regression for the live discography-crawl failure: a non-200/429/500/401 status
+raised out of the pika callback under auto_ack, closing the channel; the old
+entrypoint then re-called start_consuming() on the *same closed channel*,
+hot-spinning "Channel is closed." forever while every subsequent request (the
+depth-0 frontier-artist sweep) was published into a torn-down queue.
+"""
+from unittest.mock import MagicMock
+
+import pytest
+
+import application.api_call_engine as engine
+
+
+def test_bad_request_does_not_propagate_out_of_the_callback(monkeypatch):
+    # _consume_request raising (a give-up, or any unexpected error) must be
+    # swallowed by the callback, or pika closes the channel under auto_ack.
+    boom = []
+
+    def explode(body):
+        boom.append(body)
+        raise RuntimeError("HTTP 502 received for https://api.spotify.com/...")
+
+    monkeypatch.setattr(engine, "_consume_request", explode)
+
+    # Must NOT raise — the consumer stays alive for the next message.
+    engine.make_spotify_api_call(None, None, None, b'{"request_url": "x"}')
+    assert boom == [b'{"request_url": "x"}']
+
+
+def test_entrypoint_reconnects_instead_of_reusing_a_dead_channel(monkeypatch):
+    # First start_consuming() fails like a closed channel; the loop must build a
+    # NEW connection/channel (reconnect) rather than retry the dead one. The
+    # second attempt raises StopIteration to break the otherwise-infinite loop.
+    connects = []
+
+    def fake_connect(**kwargs):
+        connects.append(kwargs)
+        channel = MagicMock()
+        if len(connects) == 1:
+            # Emulate the closed channel — an Exception the loop must recover from.
+            channel.start_consuming.side_effect = Exception("Channel is closed.")
+        else:
+            # SystemExit is a BaseException (NOT caught by the loop's
+            # `except Exception`), so it breaks the otherwise-infinite loop.
+            channel.start_consuming.side_effect = SystemExit
+        return MagicMock(), channel
+
+    monkeypatch.setattr(engine, "connect_to_rabbitmq_exchange", fake_connect)
+    monkeypatch.setattr(engine, "bind_queue_to_exchange", lambda **kwargs: "make_api_call")
+    monkeypatch.setattr(engine, "sleep", lambda *_: None)
+
+    with pytest.raises(SystemExit):
+        engine.entrypoint()
+
+    # Reconnected: connect_to_rabbitmq_exchange was called a SECOND time after
+    # the first channel died (the old code called it exactly once, ever).
+    assert len(connects) == 2
