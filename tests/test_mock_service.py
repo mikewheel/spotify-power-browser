@@ -36,8 +36,20 @@ def test_batch_returns_objects_and_nulls_for_unknown(mock_base):
 
 
 def test_token_endpoint(mock_base):
-    body = requests.post(f"{mock_base}/api/token", data={"grant_type": "refresh_token"}).json()
+    # Authenticated code exchange includes a refresh_token...
+    body = requests.post(
+        f"{mock_base}/api/token",
+        data={"grant_type": "authorization_code", "code": "mock-auth-code"},
+        auth=("mock-client-id", "mock-client-secret"),
+    ).json()
     assert body["token_type"] == "Bearer" and body["access_token"] and body["refresh_token"]
+    # ...while a refresh grant omits it (as Spotify commonly does).
+    body = requests.post(
+        f"{mock_base}/api/token",
+        data={"grant_type": "refresh_token", "refresh_token": "mock-refresh-token"},
+        auth=("mock-client-id", "mock-client-secret"),
+    ).json()
+    assert body["access_token"] and "refresh_token" not in body
 
 
 def test_inject_429_with_retry_after_then_resumes(mock_base):
