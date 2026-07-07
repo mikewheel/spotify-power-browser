@@ -9,6 +9,7 @@ does), so both regressions are pinned here end-to-end.
 import requests
 
 import application.spotify_authentication.refresh_token as rt
+from application.spotify_authentication import token_store
 
 
 def _wire_secrets(monkeypatch, tmp_path, mock_base):
@@ -21,6 +22,16 @@ def _wire_secrets(monkeypatch, tmp_path, mock_base):
     monkeypatch.setattr(rt, "SPOTIFY_API_TOKEN_FILE", tmp_path / "spotify_api_token.secret")
     monkeypatch.setattr(rt, "SPOTIFY_REFRESH_TOKEN_FILE", tmp_path / "spotify_refresh_token.secret")
     monkeypatch.setattr(rt, "SPOTIFY_ACCOUNTS_BASE_URL", mock_base)
+    # A legacy (user_id=None) refresh ALSO mirrors into the primary's namespaced
+    # dir via token_store (refresh_token.py's two-way mirror). Isolate those
+    # paths too, or refresh_spotify_auth() reaches the REAL secrets/users/ +
+    # legacy files and overwrites the live app's tokens with the mock's. Point
+    # LEGACY_* at the same tmp files rt writes, so the mirror stays consistent.
+    monkeypatch.setattr(token_store, "USERS_DIR", tmp_path / "users")
+    monkeypatch.setattr(token_store, "PRIMARY_USER_FILE", tmp_path / "users" / ".primary_user")
+    monkeypatch.setattr(token_store, "LEGACY_API_TOKEN_FILE", tmp_path / "spotify_api_token.secret")
+    monkeypatch.setattr(token_store, "LEGACY_REFRESH_TOKEN_FILE",
+                        tmp_path / "spotify_refresh_token.secret")
 
 
 def test_refresh_authenticates_and_rewrites_access_token(monkeypatch, tmp_path, mock_base):

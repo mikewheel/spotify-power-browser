@@ -11,6 +11,46 @@ from types import SimpleNamespace
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def guard_real_secrets_untouched():
+    """Fail any test that writes token files under the REAL secrets/ dir.
+
+    Regression guard for the secrets-clobber bug: token-store / OAuth / refresh
+    tests MUST monkeypatch the token paths (token_store.USERS_DIR,
+    PRIMARY_USER_FILE, LEGACY_*_TOKEN_FILE and refresh_token.SPOTIFY_*_FILE) to
+    tmp_path. A test that reaches the real SECRETS_DIR silently overwrites the
+    live app's Spotify tokens — the primary<->legacy two-way mirror in
+    refresh_token.py made an incompletely-isolated refresh test do exactly that,
+    turning secrets/spotify_api_token.secret (and the primary's namespaced copy)
+    into the literal "mock-access-token" on every `docker compose run tests`.
+
+    Snapshot the real token files before each test and assert they are
+    byte-for-byte unchanged after (covers writes, creations, and deletions).
+    """
+    from application import config
+
+    def snapshot():
+        secrets_dir = config.SECRETS_DIR
+        watched = [secrets_dir / "spotify_api_token.secret",
+                   secrets_dir / "spotify_refresh_token.secret"]
+        users = secrets_dir / "users"
+        if users.is_dir():
+            watched += [p for p in users.rglob("*") if p.is_file()]
+        return {str(p): (p.read_bytes() if p.is_file() else None) for p in watched}
+
+    before = snapshot()
+    yield
+    after = snapshot()
+    if before != after:
+        modified = sorted(k for k in set(before) | set(after)
+                          if before.get(k) != after.get(k))
+        raise AssertionError(
+            f"test wrote to the REAL secrets dir ({config.SECRETS_DIR}): "
+            f"{modified}. Token-store/OAuth/refresh tests must monkeypatch the "
+            "token paths to tmp_path (see tests/test_token_store.py::store)."
+        )
+
+
 def _artist(i, popularity=None, followers=None):
     """popularity/followers: None -> deterministic defaults; "" -> omit the
     field entirely (a simplified artist object, e.g. a track credit, carries
