@@ -1,10 +1,24 @@
 name: spotify-power-browser
+# Per-worktree isolation (parallel Claude Code sessions share one Docker daemon):
+#   IMAGE_TAG            overrides the shared image tag       (default: latest)
+#   COMPOSE_PROJECT_NAME overrides the project name that namespaces containers,
+#                        networks and volumes                 (default: the name: above)
+# .claude/settings.json's SessionStart hook writes both into a gitignored .env
+# for worktrees under .claude/worktrees/*, so their build/test stacks never
+# collide on the shared tag or project. The PRIMARY checkout sets neither ->
+# shared defaults + its warm redis_data volume. Live crawls (the real host
+# Neo4j graph + warm dedup cache) are singular: run them from the primary
+# checkout, one at a time.
 services:
   rabbitmq:
     image: "rabbitmq:4-management"
+    # Host-published ports are parameterized so isolated worktree stacks don't
+    # fight over the host's 5672/15672. In a worktree the hook sets these to the
+    # bare container port (Docker picks a random free host port); the primary
+    # checkout keeps the fixed mapping (localhost:5672 / :15672).
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_AMQP_PORT_MAP:-5672:5672}"
+      - "${RABBITMQ_MGMT_PORT_MAP:-15672:15672}"
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       start_period: 5s
@@ -50,12 +64,14 @@ services:
   #     retries: 20
 
   spotify_authentication:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
+    # Parameterized like rabbitmq's ports so a worktree's auth service (if
+    # brought up) doesn't collide on host :8000; primary keeps localhost:8000.
     ports:
-      - "8000:8000"
+      - "${AUTH_PORT_MAP:-8000:8000}"
     # Plan 06 T4: /login/start mints single-use OAuth state nonces into Redis
     # and /callback consumes them, so this service now needs the cache.
     depends_on:
@@ -85,7 +101,7 @@ services:
       start_period: 3600s
 
   api_call_engine:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     # The whole project shares one image; build it once here, the other
     # services reference the same tag.
     build: .
@@ -118,7 +134,7 @@ services:
       ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   responses_write_to_disk:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
@@ -138,7 +154,7 @@ services:
       ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   responses_write_to_neo4j:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     # Point this worker at Neo4j Desktop on the host rather than a container.
     environment:
       NEO4J_HOSTNAME: host.docker.internal
@@ -162,7 +178,7 @@ services:
     command: python3 application/response_handlers/main.py write_to_neo4j
 
   responses_follow_links:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
@@ -186,7 +202,7 @@ services:
       ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
 
   requests_factory_start_crawls:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
@@ -236,7 +252,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   spotify_mock:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     # A controllable mock of the Spotify Web API, for tests and mock-backed runs.
     # Not part of the normal `up` (profile-gated). Listens on :80 so request URLs
     # carry no port (the dispatcher strips ports). The crawler reaches it at
@@ -253,7 +269,7 @@ services:
       start_period: 3s
 
   tests:
-    image: "spotify-power-browser:latest"
+    image: "spotify-power-browser:${IMAGE_TAG:-latest}"
     # Test runner -- not part of the normal `up`. Run with:
     #   docker compose run --rm tests
     # It brings up rabbitmq + redis; the Neo4j tests use the host Desktop and
