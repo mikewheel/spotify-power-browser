@@ -12,10 +12,11 @@ graph. Expected 403s on /me/player/* and /me/top/* are SCOPE gaps (the app's
 token lacks those scopes today), not endpoint removals — the plans distinguish
 the two. NOT part of the application; safe to delete.
 
+    [ -f .env ] && set -a && . ./.env && set +a   # pick up a worktree's IMAGE_TAG
     docker run --rm --add-host host.docker.internal:host-gateway \
       -e NEO4J_HOSTNAME=host.docker.internal -e PYTHONPATH=/src -w /src \
       -v "$PWD/secrets:/src/secrets" -v "$PWD:/probe" \
-      spotify-power-browser:latest python3 /probe/_probe_api_surface.py
+      spotify-power-browser:${IMAGE_TAG:-latest} python3 /probe/_probe_api_surface.py
 """
 import textwrap
 import requests

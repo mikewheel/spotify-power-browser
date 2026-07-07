@@ -91,12 +91,13 @@ server — or bind-mount your working copy over the baked-in package while
 iterating:
 
 ```bash
+[ -f .env ] && set -a && . ./.env && set +a   # pick up a worktree's IMAGE_TAG (see compose.yaml)
 docker run --rm -i \
     --add-host host.docker.internal:host-gateway \
     -e NEO4J_HOSTNAME=host.docker.internal \
     -v "$(pwd)/secrets":/src/secrets \
     -v "$(pwd)/mcp_server":/src/mcp_server \
-    spotify-power-browser:latest python3 -m mcp_server
+    spotify-power-browser:${IMAGE_TAG:-latest} python3 -m mcp_server
 ```
 
 Never print to **stdout** from server code — stdio transport uses it for
