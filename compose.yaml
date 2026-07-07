@@ -3,22 +3,23 @@ name: spotify-power-browser
 #   IMAGE_TAG            overrides the shared image tag       (default: latest)
 #   COMPOSE_PROJECT_NAME overrides the project name that namespaces containers,
 #                        networks and volumes                 (default: the name: above)
-# .claude/settings.json's SessionStart hook writes both into a gitignored .env
-# for worktrees under .claude/worktrees/*, so their build/test stacks never
-# collide on the shared tag or project. The PRIMARY checkout sets neither ->
-# shared defaults + its warm redis_data volume. Live crawls (the real host
+# .claude/settings.json's SessionStart hook writes those into a gitignored .env
+# AND a gitignored compose.override.yaml (ports: !reset []) for worktrees under
+# .claude/worktrees/*, so their stacks never collide on the shared tag/project
+# and publish no host ports (5672/15672/8000) — the per-project network already
+# connects the services. The PRIMARY checkout gets neither file: shared
+# defaults, fixed localhost ports, warm redis_data. Live crawls (the real host
 # Neo4j graph + warm dedup cache) are singular: run them from the primary
 # checkout, one at a time.
 services:
   rabbitmq:
     image: "rabbitmq:4-management"
-    # Host-published ports are parameterized so isolated worktree stacks don't
-    # fight over the host's 5672/15672. In a worktree the hook sets these to the
-    # bare container port (Docker picks a random free host port); the primary
-    # checkout keeps the fixed mapping (localhost:5672 / :15672).
+    # Host ports for the primary checkout; worktree stacks drop these via a
+    # hook-written compose.override.yaml (they reach services over the
+    # per-project network, so they need no host publishing).
     ports:
-      - "${RABBITMQ_AMQP_PORT_MAP:-5672:5672}"
-      - "${RABBITMQ_MGMT_PORT_MAP:-15672:15672}"
+      - "5672:5672"
+      - "15672:15672"
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       start_period: 5s
@@ -68,10 +69,8 @@ services:
     volumes:
       - "./secrets:/src/secrets"
       - "./data:/src/data"
-    # Parameterized like rabbitmq's ports so a worktree's auth service (if
-    # brought up) doesn't collide on host :8000; primary keeps localhost:8000.
     ports:
-      - "${AUTH_PORT_MAP:-8000:8000}"
+      - "8000:8000"
     # Plan 06 T4: /login/start mints single-use OAuth state nonces into Redis
     # and /callback consumes them, so this service now needs the cache.
     depends_on:
