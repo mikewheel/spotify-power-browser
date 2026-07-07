@@ -19,7 +19,17 @@ def connect_to_rabbitmq_exchange(
     :return: the connection and channel objects as a 2-tuple.
     """
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=RABBITMQ_HOSTNAME)
+        pika.ConnectionParameters(
+            host=RABBITMQ_HOSTNAME,
+            # A crawl callback does a (possibly slow) HTTP GET plus a fan-out
+            # publish before returning control to pika's I/O loop, which is when
+            # heartbeats are serviced. The 60s default let the broker reset the
+            # connection under load ("Connection reset by peer"); a long
+            # heartbeat tolerates bursty callbacks. Paired with a durable,
+            # non-exclusive request queue (below), a reset no longer loses work.
+            heartbeat=600,
+            blocked_connection_timeout=300,
+        )
     )
     channel = connection.channel()
 
@@ -48,9 +58,18 @@ def bind_queue_to_exchange(
     :return: the name of the queue as a string
     """
 
+    # A NAMED queue is a shared, durable work queue (make_api_call, the response
+    # topics): it must NOT be tied to the declaring connection, or a single
+    # consumer's dropped connection deletes the queue and every request still
+    # sitting in it (the discography-crawl failure: an engine reconnect wiped
+    # ~950 queued album-batch/frontier-sweep requests). An UNNAMED queue is a
+    # throwaway reply queue and stays exclusive/auto-deleting.
+    is_named = queue_name is not None
     result = channel.queue_declare(
-        queue=(queue_name if queue_name is not None else ""),
-        exclusive=True  # Deletes queue on connection close
+        queue=(queue_name if is_named else ""),
+        durable=is_named,          # survive a broker restart
+        exclusive=not is_named,    # not bound to one connection
+        auto_delete=not is_named,  # not deleted when the last consumer drops
     )
 
     queue_name = result.method.queue
@@ -89,7 +108,10 @@ def publish_message_to_exchange(channel, exchange, routing_key, body):
     channel.basic_publish(
         exchange=exchange,
         routing_key=routing_key,
-        body=body
+        body=body,
+        # Persist messages so queued work survives a broker restart (the durable
+        # queues above only persist the queue, not its transient messages).
+        properties=pika.BasicProperties(delivery_mode=2),
     )
     logger.debug(
         f'Published to exchange {exchange} with routing key {routing_key}'
