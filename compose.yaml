@@ -223,6 +223,9 @@ services:
       CRAWLED_URL_DEDUP: ${CRAWLED_URL_DEDUP:-true}
       CRAWL_ARTIST_DISCOGRAPHIES: ${CRAWL_ARTIST_DISCOGRAPHIES:-false}
       ARTIST_AFFINITY_MIN: ${ARTIST_AFFINITY_MIN:-3}
+      # Set CRAWL_LIKED_SONGS=false to run a discography-only crawl (skip
+      # re-paginating an already-crawled Liked Songs library).
+      CRAWL_LIKED_SONGS: ${CRAWL_LIKED_SONGS:-true}
       # Plan 06 multiplayer: which user(s) to seed for. Default: the primary
       # user (legacy no-user mode when nobody authorized via /login yet).
       #   CRAWL_USER=<spotify_user_id> docker compose up     one user

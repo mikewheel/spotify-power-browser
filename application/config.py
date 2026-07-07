@@ -18,7 +18,10 @@ def _env_bool(name, default):
 ###
 # Which searches to kick off
 ###
-CRAWL_LIKED_SONGS = True
+# Env-overridable so a run can crawl ONLY discographies (CRAWL_LIKED_SONGS=false
+# CRAWL_ARTIST_DISCOGRAPHIES=true) without redundantly re-paginating an already
+# crawled Liked Songs library. Defaults preserve the original behavior.
+CRAWL_LIKED_SONGS = _env_bool('CRAWL_LIKED_SONGS', True)
 CRAWL_FOLLOWED_PLAYLISTS = False
 CRAWL_FOLLOWED_ARTISTS = False
 
