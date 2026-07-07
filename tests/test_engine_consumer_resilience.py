@@ -52,6 +52,43 @@ def test_unnamed_reply_queue_stays_exclusive():
     assert kwargs["durable"] is False
 
 
+def test_response_worker_entrypoint_reconnects_on_channel_loss(monkeypatch):
+    # Same bug as the engine, but in the response workers (write_to_neo4j et al):
+    # a closed channel must trigger a RECONNECT, not a hot-spin on the dead one
+    # (which froze the durable write_to_neo4j backlog live).
+    import application.response_handlers.main as rmain
+
+    connects = []
+
+    def fake_connect(**kwargs):
+        connects.append(kwargs)
+        channel = MagicMock()
+        channel.start_consuming.side_effect = (
+            Exception("Channel is closed.") if len(connects) == 1 else SystemExit
+        )
+        return MagicMock(), channel
+
+    monkeypatch.setattr(rmain, "connect_to_rabbitmq_exchange", fake_connect)
+    monkeypatch.setattr(rmain, "bind_queue_to_exchange", lambda **kwargs: "write_to_neo4j")
+    monkeypatch.setattr(rmain, "sleep", lambda *_: None)
+
+    with pytest.raises(SystemExit):
+        rmain.entrypoint("write_to_neo4j")
+
+    assert len(connects) == 2  # reconnected after the first channel died
+
+
+def test_response_worker_callback_swallows_a_bad_message(monkeypatch):
+    import application.response_handlers.main as rmain
+
+    def boom(ch, method, properties, body):
+        raise RuntimeError("neo4j write blip")
+
+    monkeypatch.setattr(rmain.SpotifyResponseController, "_dispatch", staticmethod(boom))
+    # Must NOT raise — the worker stays alive for the next message.
+    rmain.SpotifyResponseController.dispatch_to_response_parser(None, None, None, b"{}")
+
+
 def test_bad_request_does_not_propagate_out_of_the_callback(monkeypatch):
     # _consume_request raising (a give-up, or any unexpected error) must be
     # swallowed by the callback, or pika closes the channel under auto_ack.
