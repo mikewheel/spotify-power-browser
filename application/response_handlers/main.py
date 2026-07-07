@@ -1,5 +1,6 @@
 import argparse
 from json import loads
+from time import sleep
 from urllib.parse import urlparse, parse_qs
 
 from application.config import SECRETS_DIR, SPOTIFY_API_BASE_URL
@@ -106,6 +107,20 @@ class SpotifyResponseController:
 
     @staticmethod
     def dispatch_to_response_parser(ch, method, properties, body):
+        """Consumer callback wrapper: a single bad message (a handler error or a
+        transient Neo4j write blip) must NOT propagate into pika and close the
+        channel — under auto_ack that stalls the whole worker (the write_to_neo4j
+        backlog freeze). Log and skip; entrypoint()'s reconnect loop handles
+        connection-level failures."""
+        try:
+            SpotifyResponseController._dispatch(ch, method, properties, body)
+        except Exception:
+            logger.exception(
+                'Error handling a response message; skipping it to keep the consumer alive.'
+            )
+
+    @staticmethod
+    def _dispatch(ch, method, properties, body):
         global RESPONSE_HANDLER_ACTION
 
         msg = loads(body)
@@ -135,32 +150,35 @@ class SpotifyResponseController:
 
 
 def entrypoint(response_handler_action):
-    connection, channel = connect_to_rabbitmq_exchange(
-        exchange_name=ResponsesExchange.EXCHANGE_NAME.value,
-        exchange_type=ResponsesExchange.EXCHANGE_TYPE.value
-    )
-
-    queue_name = bind_queue_to_exchange(
-        channel=channel,
-        exchange_name=ResponsesExchange.EXCHANGE_NAME.value,
-        exchange_type=ResponsesExchange.EXCHANGE_TYPE.value,
-        routing_key=response_handler_action,
-        queue_name=response_handler_action  # Mimics the behavior of the default exchange
-    )
-
-    channel.basic_consume(
-        queue=queue_name,
-        on_message_callback=SpotifyResponseController.dispatch_to_response_parser,
-        auto_ack=True
-    )
-
+    # Full setup INSIDE the loop so a closed channel/connection (a broker
+    # restart, a heartbeat timeout, a connection reset under load) is recovered
+    # by RECONNECTING. The old version set up once outside the loop and
+    # re-called start_consuming() on the already-closed channel, hot-spinning
+    # "Channel is closed." forever while the durable queue's messages piled up
+    # unconsumed (the write_to_neo4j backlog freeze). Bounded sleep on retry.
     while True:
         try:
+            connection, channel = connect_to_rabbitmq_exchange(
+                exchange_name=ResponsesExchange.EXCHANGE_NAME.value,
+                exchange_type=ResponsesExchange.EXCHANGE_TYPE.value
+            )
+            queue_name = bind_queue_to_exchange(
+                channel=channel,
+                exchange_name=ResponsesExchange.EXCHANGE_NAME.value,
+                exchange_type=ResponsesExchange.EXCHANGE_TYPE.value,
+                routing_key=response_handler_action,
+                queue_name=response_handler_action  # Mimics the behavior of the default exchange
+            )
+            channel.basic_consume(
+                queue=queue_name,
+                on_message_callback=SpotifyResponseController.dispatch_to_response_parser,
+                auto_ack=True
+            )
             logger.info(f'Starting to consume from queue {queue_name}')
             channel.start_consuming()
         except Exception as e:
-            logger.error(e)
-            logger.info(f'Restarting...')
+            logger.error(f'Consumer connection failed ({e!r}); reconnecting in 5s...')
+            sleep(5)
 
 
 if __name__ == '__main__':
