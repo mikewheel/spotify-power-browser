@@ -261,7 +261,12 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - "./secrets:/src/secrets"
+      # Read-only: the suite must NEVER write the real tokens. Even if a test
+      # forgets to isolate token_store to tmp_path, :ro turns a silent clobber of
+      # secrets/spotify_*.secret + secrets/users/ (which breaks the live app's
+      # auth) into a loud failure. The non-token secrets tests legitimately read
+      # (neo4j creds, client id/secret) stay readable.
+      - "./secrets:/src/secrets:ro"
       - "./tests:/src/tests"
       # mock_spotify normally runs as the spotify_mock service, but tests that
       # drive the catalog/mock app in-process (plans 03 + 08) import it
