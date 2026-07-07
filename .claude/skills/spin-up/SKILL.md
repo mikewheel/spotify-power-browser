@@ -91,8 +91,9 @@ find data/responses -name '*.json' | wc -l                                  # JS
 ```
 Graph counts (one-off container against host Neo4j):
 ```bash
+[ -f .env ] && set -a && . ./.env && set +a   # pick up a worktree's IMAGE_TAG
 docker run --rm --add-host host.docker.internal:host-gateway -e NEO4J_HOSTNAME=host.docker.internal \
-  -v "$PWD/secrets:/src/secrets" spotify-power-browser:latest python3 -c "
+  -v "$PWD/secrets:/src/secrets" spotify-power-browser:${IMAGE_TAG:-latest} python3 -c "
 from application.config import SECRETS_DIR
 from application.graph_database.connect import connect_to_neo4j
 d=connect_to_neo4j(SECRETS_DIR/'neo4j_credentials.yaml')

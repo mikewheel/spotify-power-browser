@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/worktree_compose_env.sh\"",
+            "statusMessage": "Isolating compose stack for this worktree"
+          }
+        ]
+      }
+    ]
+  }
+}
