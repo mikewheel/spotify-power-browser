@@ -64,12 +64,9 @@ def refresh_spotify_auth(user_id=None):
         with open(SPOTIFY_REFRESH_TOKEN_FILE, "w") as f:
             f.write(refresh_token)
 
-        # TWO-WAY mirror (the runbook documents primary <-> legacy as kept in
-        # sync "on every save/refresh"): the legacy refresh token IS the
-        # primary's, so when a legacy-path refresh rotates it, the primary's
-        # namespaced copies must follow — or a later per-user 401 for the
-        # primary replays the stale token and 400s (invalid_grant), wedging
-        # their crawl until a manual re-auth.
+        # Two-way mirror: the legacy refresh token IS the primary's, so their
+        # namespaced copies must follow or the primary's next per-user 401
+        # replays a stale token (invalid_grant). See docs/auth.md.
         primary = token_store.get_primary_user_id()
         if primary is not None:
             token_store.save_tokens(primary, access_token, refresh_token)

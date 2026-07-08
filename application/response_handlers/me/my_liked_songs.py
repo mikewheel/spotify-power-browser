@@ -81,9 +81,6 @@ class LikedSongsPlaylistResponseHandler(BaseResponseHandler):
     def name(self):
         return f"liked_songs_{self.response['offset']}"
 
-    def check_url_match(self, url):
-        return False  # TODO
-
     def write_to_disk(self):
         # Multiplayer (plan 06): page filenames are keyed only by offset, so
         # each user's crawl archives under its own subdirectory — otherwise a

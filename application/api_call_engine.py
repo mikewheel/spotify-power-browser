@@ -273,13 +273,9 @@ def make_spotify_api_call(ch, method, properties, body):
 
 
 def entrypoint():
-    # The full setup (connect -> bind -> consume) lives INSIDE the loop so a
-    # closed channel/connection — an unhandled callback error, a broker
-    # restart, a heartbeat timeout — is recovered by RECONNECTING. The previous
-    # version set up once outside the loop and re-called start_consuming() on
-    # the already-closed channel, hot-spinning forever ("Channel is closed.")
-    # while every published request drained into the void. The sleep bounds the
-    # retry rate when the broker is unreachable.
+    # Setup (connect -> bind -> consume) must live INSIDE the loop: recovery
+    # from a closed channel/connection means reconnecting, not re-consuming
+    # (regression: tests/test_engine_consumer_resilience.py).
     while True:
         try:
             connection, channel = connect_to_rabbitmq_exchange(

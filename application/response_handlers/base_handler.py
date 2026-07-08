@@ -27,10 +27,6 @@ class BaseResponseHandler(ABC):
         return self.name.replace("/", "_slash_").replace("\\", "_back_slash_")
 
     @abstractmethod
-    def check_url_match(self, url):
-        pass
-
-    @abstractmethod
     def write_to_disk(self):
         pass
 

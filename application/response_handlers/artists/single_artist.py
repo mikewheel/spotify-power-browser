@@ -23,9 +23,6 @@ class GetSingleArtistResponseHandler(BaseResponseHandler):
     def __init__(self, request_url, depth_of_search, response, user_id=None):
         super().__init__(request_url, depth_of_search, response, user_id=user_id)
 
-    def check_url_match(self, url):
-        return False  # TODO
-
     def write_to_disk(self):
         output_file = self.DISK_LOCATION / f"artist_{self.clean_name}.json"
         super()._write_to_disk(output_path=output_file)

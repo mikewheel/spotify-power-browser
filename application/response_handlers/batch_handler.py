@@ -30,9 +30,6 @@ class SeveralResourcesResponseHandler(BaseResponseHandler):
         """The resolved (non-null) objects from the batch response."""
         return [item for item in self.response[self.RESPONSE_KEY] if item is not None]
 
-    def check_url_match(self, url):
-        return False  # batch routing is by the ?ids= query param in the dispatcher
-
     def write_to_disk(self):
         for item in self.items:
             try:

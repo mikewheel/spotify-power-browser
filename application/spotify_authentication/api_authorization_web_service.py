@@ -117,11 +117,9 @@ class SpotifyLoginStartResource:
                                   "redirect_uri": SPOTIFY_REDIRECT_URI})
 
         authorization_code_uri = f'{SPOTIFY_ACCOUNTS_BASE_URL}/authorize?{query_params}'
-        # 303 See Other + Cache-Control: no-store — NEVER a 301. The Location
-        # embeds a single-use state nonce; a permanent redirect is heuristically
-        # cacheable, so the browser would replay the consumed nonce on the next
-        # "Add a user" click and the callback would reject every login from
-        # that browser until its cache was cleared.
+        # 303 + no-store, NEVER a cacheable 301: the Location embeds a
+        # single-use nonce, and a cached redirect would replay it on the next
+        # login attempt (docs/auth.md).
         raise falcon.HTTPSeeOther(authorization_code_uri,
                                   headers={"Cache-Control": "no-store"})
 
