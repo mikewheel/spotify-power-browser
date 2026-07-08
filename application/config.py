@@ -58,7 +58,7 @@ CRAWLED_URL_DEDUP = _env_bool('CRAWLED_URL_DEDUP', True)
 # Use Spotify's multi-id batch endpoints (GET /v1/{type}?ids=) when fetching
 # tracks/albums/artists. Default OFF: existing apps currently RETAIN batch access,
 # but Spotify only POSTPONED (did not cancel) removing it, and access can only be
-# live-verified via application/_probe_batch_endpoints.py once the rate limit
+# live-verified via scripts/probes/probe_batch_endpoints.py once the rate limit
 # clears. Flip on via env (USE_BATCH_ENDPOINTS=true) after probing.
 USE_BATCH_ENDPOINTS = _env_bool('USE_BATCH_ENDPOINTS', False)
 

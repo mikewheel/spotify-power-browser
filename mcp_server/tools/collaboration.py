@@ -4,17 +4,19 @@
 (verified 2026-07-06), so track-level co-credits (features, remixes, split
 EPs) ARE the discovery mechanism — see docs/plans/01-adjacent-artist-discovery.md.
 
-Popularity caveat: Artist.popularity is not yet populated (plan 01's backfill
-adds it), so most artists have popularity NULL today. NULL is treated as
-UNKNOWN — such artists are included regardless of $max_popularity and flagged
-with popularity_unknown=true, sorted after known-popularity peers.
+Popularity caveat: Artist.popularity comes from the discovery backfill
+(python -m application.discovery.backfill_artists); artists not yet enriched
+have popularity NULL. NULL is treated as UNKNOWN — such artists are included
+regardless of $max_popularity and flagged with popularity_unknown=true,
+sorted after known-popularity peers.
 """
 from mcp_server.readonly import run_readonly_query
 
 POPULARITY_CAVEAT = (
-    'Artist.popularity is not yet populated for most nodes (plan 01 backfills it). '
-    'Rows with popularity_unknown=true have no popularity data: they are included '
-    'regardless of max_popularity and sorted after known-popularity artists.'
+    'Artist.popularity is filled by the discovery backfill; artists not yet '
+    'enriched have NULL popularity. Rows with popularity_unknown=true have no '
+    'popularity data: they are included regardless of max_popularity and '
+    'sorted after known-popularity artists.'
 )
 
 # Which of the input names match no Artist node (exact, case-insensitive)?

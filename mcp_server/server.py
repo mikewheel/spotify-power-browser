@@ -99,10 +99,11 @@ def discover_adjacent(
     liked-songs graph. An artist qualifies with at least `min_bridges`
     independent connections and popularity at most `max_popularity`.
 
-    CAVEAT: Artist.popularity is not yet populated (plan 01 backfills it).
-    Artists with NULL popularity are treated as UNKNOWN — included regardless
-    of max_popularity, flagged popularity_unknown=true, and sorted after
-    known-popularity peers. The payload repeats this caveat.
+    CAVEAT: Artist.popularity comes from the discovery backfill
+    (python -m application.discovery.backfill_artists); artists not yet
+    enriched have NULL popularity and are treated as UNKNOWN — included
+    regardless of max_popularity, flagged popularity_unknown=true, and sorted
+    after known-popularity peers. The payload repeats this caveat.
     """
     return collaboration.discover_adjacent(
         get_driver(),

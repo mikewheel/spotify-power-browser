@@ -11,11 +11,11 @@ from pathlib import Path
 
 import requests
 
-ROOT = Path(__file__).absolute().parent
+ROOT = Path(__file__).absolute().parents[2]  # repo root (this file lives in scripts/probes/)
 TOKEN = (ROOT / "secrets" / "spotify_api_token.secret").read_text().strip()
 
 def ids_from_liked(n=3):
-    f = sorted(glob.glob(str(ROOT / "data/responses/liked_songs/*.json")))[0]
+    f = sorted(glob.glob(str(ROOT / "data/responses/liked_songs/**/*.json"), recursive=True))[0]
     items = json.loads(Path(f).read_text())["items"]
     return [it["track"]["id"] for it in items[:n]]
 

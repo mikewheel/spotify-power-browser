@@ -1,100 +1,128 @@
 # Spotify Power Browser
 
-For tastemakers and audiophiles of all kinds. A data-engineering pipeline that
-crawls the Spotify Web API and builds a graph of your musical taste in Neo4j.
+For tastemakers and audiophiles of all kinds: a local data-engineering
+pipeline that copies your Spotify listening data into a **graph database**,
+then gives you (and your friends, and your AI assistant) ways to explore it
+that Spotify never will.
 
-It runs as a set of containerized workers wired together by RabbitMQ, with a
-Redis-backed crawl dedup cache — the whole thing comes up with a single
-`docker compose up`, including the one-time Spotify OAuth flow.
+One `docker compose up` brings up the whole thing — message queue, crawler
+workers, even the Spotify login flow — and about twenty minutes later your
+entire library is a graph you can query.
 
-## Architecture
+```mermaid
+flowchart LR
+    spotify["🎵 Spotify<br/>Web API"]
+    pipeline["🐳 Crawler pipeline<br/>(Docker Compose:<br/>RabbitMQ + Redis + Python workers)"]
+    graphdb[("🕸️ Neo4j<br/>your taste graph")]
+    you(["🧑‍🎤 You + friends<br/>Cypher, playlists"])
+    ai(["🤖 AI assistants<br/>via MCP"])
 
+    spotify -- "crawl (read)" --> pipeline --> graphdb
+    graphdb --> you
+    graphdb --> ai
+    you -- "generated playlists (write, guarded)" --> spotify
 ```
-requests_factory ──► Requests exchange ──► api_call_engine ──► Spotify Web API
-   (seeds a crawl)      (RabbitMQ)         (GET, retry/backoff)      │
-                                                                     ▼
-                                              Responses exchange (fan-out ×4, RabbitMQ)
-                                                                     │
-            ┌────────────────────┬───────────────────┬──────────────┴────────┐
-            ▼                    ▼                   ▼                        ▼
-      write_to_disk        write_to_neo4j       follow_links            write_to_sqlite
-      (JSON cache)         (graph insert)     (re-queues URLs)            (stub, off)
-                                                     │
-                                                     └──► back to Requests exchange
-                                                          (recursive crawl, depth-limited)
-```
 
-- **Graph model:** `Track`, `Album`, `Artist`, `Genre` nodes; `CONTAINS`,
-  `CREATED`, `SPOTIFY_CLASSIFIED_AS` relationships. Everything is `MERGE`d on
-  stable Spotify IDs, so re-crawling is idempotent.
-- **Dedup:** every outbound request flows through one choke point
-  (`requests_factory.request_url`) and is checked against a durable Redis set, so
-  redundant follow requests don't flood the API (and trip rate limits).
+## What can it actually do?
 
-## Prerequisites
+- **Crawl** your Liked Songs — and optionally the full discographies of the
+  artists you clearly love — into `Track`/`Album`/`Artist`/`Genre` nodes.
+  Idempotent (re-crawls update, never duplicate), rate-limit-respecting, and
+  restartable.
+- **Master** your library: roll "Levitating", "Levitating – Radio Edit" and
+  the deluxe re-release into one canonical *Song*, with a human review loop.
+- **Multiplayer**: a friend logs in, their library lands in the same graph,
+  and a query pack answers "what do we share, where do we diverge, what's
+  new to both of us?"
+- **Annotate** tracks while you listen — cue points, section maps, notes —
+  straight into the graph from hotkeys.
+- **Write back**: turn graph insights into real Spotify playlists, with
+  dry-run defaults and a hard rule that it never touches playlists it didn't
+  create.
+- **Talk to it**: a read-only MCP server lets Claude explore the graph
+  conversationally.
 
-- **Docker Desktop** (running).
-- **Neo4j Desktop** with a database running (`bolt://127.0.0.1:7687`). The crawler
-  connects to it from inside Docker via `host.docker.internal`. _(Alternatively,
-  run Neo4j fully in Docker — see the commented `neo4j` service in
-  `compose.yaml`.)_
-- **A registered Spotify app** (https://developer.spotify.com/dashboard) with:
-  - the **redirect URI `http://127.0.0.1:8000/callback`** registered (Spotify
-    rejects `localhost` as insecure — it must be the loopback IP).
-  - its client ID and secret available for `secrets/` (below).
+## Quickstart
 
-## Setup
+You need three things installed and one thing registered:
 
-Populate `secrets/` (all gitignored):
+1. **Docker Desktop**, running.
+2. **Neo4j Desktop** with a database started (`bolt://127.0.0.1:7687`) — the
+   graph lives here, on the host, [on purpose](docs/architecture.md#why-isnt-neo4j-a-container).
+3. **A Spotify app** ([dashboard](https://developer.spotify.com/dashboard))
+   with redirect URI `http://127.0.0.1:8000/callback` registered — the
+   loopback IP exactly; Spotify rejects `localhost`.
+
+Then populate `secrets/` (gitignored):
 
 | File | Contents |
 |------|----------|
-| `secrets/spotify_client_id.secret` | your Spotify app client ID |
-| `secrets/spotify_client_secret.secret` | your Spotify app client secret |
-| `secrets/neo4j_credentials.yaml` | `username: neo4j` / `password: <your Neo4j Desktop password>` |
+| `secrets/spotify_client_id.secret` | your Spotify app's client ID |
+| `secrets/spotify_client_secret.secret` | your Spotify app's client secret |
+| `secrets/neo4j_credentials.yaml` | `username: neo4j` / `password: <your password>` |
 
-The OAuth token files are written here automatically by the auth flow.
-
-## Run
+And run it:
 
 ```bash
 docker compose up
 ```
 
-What happens, in one command:
-1. RabbitMQ, Redis, and the response workers start.
-2. The **bundled Spotify auth service** serves a login page and the pipeline
-   **waits** (a token healthcheck gates it) until you authorize.
-3. Open **http://127.0.0.1:8000/login**, log into Spotify, click **Agree**. The
-   callback writes your tokens to `secrets/`.
-4. The healthcheck flips green, the gate releases, and the crawl of your Liked
-   Songs begins — writing JSON to `data/responses/` and the graph to Neo4j.
+The stack starts, then **waits for you**: open http://127.0.0.1:8000/login,
+log into Spotify, click Agree. Your token lands on disk, a healthcheck flips
+green, and the crawl begins — raw JSON to `data/responses/`, the graph to
+Neo4j. Watch it run at http://localhost:15672 (guest/guest) — the crawl is
+done when the queues are empty and the rates hit zero
+([how to read that screen](docs/observability.md)).
 
-## Configuration (`application/config.py`, all env-overridable)
+## Configuration
+
+All flags live in [application/config.py](application/config.py) and are
+overridable at the shell, e.g. `RESET_CRAWL=true docker compose up`:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `CRAWL_LIKED_SONGS` | `True` | crawl your saved tracks |
-| `DEPTH_OF_SEARCH` | `1` | how far to follow neighbors |
-| `CRAWLED_URL_DEDUP` | `True` | skip already-requested URLs (Redis) |
-| `RESET_CRAWL` | `False` | clear the dedup set for a fresh crawl (set `true` to re-crawl from scratch) |
-| `USE_BATCH_ENDPOINTS` | `False` | use Spotify's `?ids=` batch endpoints (~22× fewer calls) — see note below |
-| `NEO4J_HOSTNAME` / `REDIS_HOSTNAME` / `RABBITMQ_HOSTNAME` | service names | point at host vs container services |
+| `CRAWL_LIKED_SONGS` | `true` | crawl your saved tracks |
+| `CRAWL_ARTIST_DISCOGRAPHIES` | `false` | also crawl full discographies of artists with ≥ `ARTIST_AFFINITY_MIN` (3) liked tracks |
+| `USE_BATCH_ENDPOINTS` | `false` | Spotify's multi-id endpoints, ~22× fewer calls (live-verified for this app; re-verify with `scripts/probes/probe_batch_endpoints.py` if in doubt) |
+| `CRAWLED_URL_DEDUP` | `true` | skip already-fetched URLs (Redis, persists across runs) |
+| `RESET_CRAWL` | `false` | forget fetched URLs and crawl fresh (per-user in multiplayer mode) |
+| `CRAWL_USER` / `CRAWL_ALL_USERS` | primary / `false` | whose library to crawl (multiplayer) |
+| `DEPTH_OF_SEARCH` | `1` | how many hops to follow from a response |
 
-> **Batch endpoints:** Spotify postponed (not cancelled) removing the multi-id
-> `?ids=` endpoints for existing apps. Verify with `_probe_batch_endpoints.py`
-> before enabling; the per-item path is the safe default.
+## Where do I go next?
 
-## Monitoring
+| I want to… | Read |
+|---|---|
+| understand how the pieces fit together | [docs/architecture.md](docs/architecture.md) |
+| understand what's *in* the graph | [docs/data-model.md](docs/data-model.md) |
+| actually explore my data (tutorial) | [docs/exploring-the-graph.md](docs/exploring-the-graph.md) |
+| hook up Claude to the graph | [mcp_server/README.md](mcp_server/README.md) |
+| add a friend's library | [docs/multiplayer-runbook.md](docs/multiplayer-runbook.md) |
+| understand the login/token machinery | [docs/auth.md](docs/auth.md) |
+| run tests / understand coverage | [docs/testing.md](docs/testing.md) |
+| know how builds & runs work (incl. offline mock runs) | [docs/delivery.md](docs/delivery.md) |
+| watch a crawl and interpret what I see | [docs/observability.md](docs/observability.md) |
+| compare the Lucid vs Mermaid diagrams | [docs/diagrams/README.md](docs/diagrams/README.md) |
+| see what's done and what's next | [ROADMAP.md](ROADMAP.md) · [docs/plans/](docs/plans/README.md) |
 
-- **RabbitMQ Management UI — http://localhost:15672** (`guest`/`guest`): the
-  Queues tab shows per-stage backlog and live message rates. The crawl is done
-  when rates flatline to 0 and queues are empty.
-- **Logs:** `docker compose logs -f api_call_engine` (the live GET stream),
-  `docker compose logs -f responses_write_to_neo4j` (node/edge counts).
-- **Throughput pulse:** `docker compose logs --since 10s api_call_engine | grep -c 'GET:'` (0 = idle).
-- **Graph:** the Neo4j Desktop browser, e.g. `MATCH (a:Artist)-[:CREATED]->(t:Track) RETURN a,t LIMIT 100`.
-- **Disk cache:** `find data/responses -name '*.json' | wc -l`.
+Every folder also has its own README (start at
+[application/README.md](application/README.md)).
+
+## The post-crawl toolkit
+
+```bash
+# enrich artists with popularity/followers (discovery ranking needs this)
+docker compose run --rm responses_write_to_neo4j python3 -m application.discovery.backfill_artists
+
+# dedupe releases into canonical Songs, then read data/mastering_review.md
+docker compose run --rm responses_write_to_neo4j python3 -m application.mastering.run
+
+# annotate while listening (hotkeys: n note, c cue, s section, q quit)
+docker compose run --rm responses_write_to_neo4j python3 -m application.annotations.listen
+
+# turn discoveries into a real playlist (dry-run by default; --apply to do it)
+docker compose run --rm responses_write_to_neo4j python3 -m application.playlists.sync adjacent-discoveries
+```
 
 ## Tests
 
@@ -102,39 +130,11 @@ What happens, in one command:
 docker compose run --rm tests
 ```
 
-A pytest suite (unit + integration) that brings up RabbitMQ + Redis and targets
-the host Neo4j Desktop; integration tests skip if a service is down.
-
-## Annotations (notes, cues, section maps)
-
-Timestamped listening annotations over crawled tracks (plan 04, phases A–B):
-`(:Track)-[:HAS_NOTE|HAS_CUE|HAS_SECTION]->(…)`, sections chained with `NEXT`.
-
-- **Cold entry** — search a track by name in the graph, annotate from prompts:
-  ```bash
-  docker compose run --rm responses_write_to_neo4j \
-      python3 -m application.annotations.annotate "track name"
-  ```
-- **Live capture** — put an album on (any device), keep a terminal open, tap
-  keys as it plays. Polls `/v1/me/player` ~1s; hotkeys: `n` note, `c` cue,
-  `s` section boundary, `u` undo, `+`/`-` nudge 500ms, `q` quit + summary:
-  ```bash
-  docker compose run --rm responses_write_to_neo4j \
-      python3 -m application.annotations.listen
-  ```
-
-> **Scope note:** live capture reads `GET /v1/me/player`, which requires the
-> `user-read-playback-state` OAuth scope — part of the bundled re-auth
-> (docs/plans/README.md, "Do these first"); until you re-authorize, it 403s
-> against live Spotify. It works today against the mock:
-> `docker compose run --rm -e SPOTIFY_API_BASE_URL=http://spotify_mock …`.
+Unit, integration, end-to-end, and failure-injection tests against a bundled
+mock Spotify; your real secrets are mounted read-only so the suite can't
+touch them. Details: [docs/testing.md](docs/testing.md).
 
 ## Stack
 
-Python 3.13 · Poetry 2.4 · RabbitMQ 4 · Redis 8 · Neo4j 6 (driver) · Falcon 4 ·
-pika · pandas 3.
-
-## More
-
-- **Roadmap & status:** [ROADMAP.md](ROADMAP.md)
-- **Design notes (mock Spotify service, AWS):** [docs/](docs/)
+Python 3.13 · Poetry 2.4 · Falcon 4 · pika/RabbitMQ 4 · Redis 8 ·
+Neo4j (driver 6) · pytest 8 · MCP SDK. Everything ships in one Docker image.

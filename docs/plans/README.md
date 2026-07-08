@@ -24,7 +24,7 @@ Effort legend: **S** ≤1 day · **M** 2–4 days · **L** 1–2 weeks · **XL**
 
 Spotify's 2024-11-27 policy removed several endpoints for new apps; the 2026-02
 changelog targeted (then postponed) the batch endpoints. This app (created
-2023-04) was probed with a live token via `_probe_api_surface.py`:
+2023-04) was probed with a live token via `scripts/probes/probe_api_surface.py`:
 
 | Endpoint | Result | Meaning for the plans |
 |----------|--------|----------------------|
@@ -38,7 +38,7 @@ changelog targeted (then postponed) the batch endpoints. This app (created
 
 A 403 **without** a message body = removed-for-this-app; a 403 **with**
 "Insufficient client scope" = endpoint alive, token lacks the scope. Re-probe
-any of this with `_probe_api_surface.py` before building on it.
+any of this with `scripts/probes/probe_api_surface.py` before building on it.
 
 ## Do these first (shared foundations)
 

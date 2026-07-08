@@ -173,5 +173,5 @@ docker compose down -v               # also wipe the Redis dedup volume
 - **Tokens last ~1h.** Long crawls rely on the 401-refresh path; a fresh token is
   written on each `/callback`.
 - **`USE_BATCH_ENDPOINTS` is default-off.** Only enable after probing batch access
-  with `_probe_batch_endpoints.py` (Spotify postponed, not cancelled, removing
+  with `scripts/probes/probe_batch_endpoints.py` (Spotify postponed, not cancelled, removing
   the `?ids=` endpoints for existing apps).
