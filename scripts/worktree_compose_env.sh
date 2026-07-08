@@ -1,22 +1,11 @@
 #!/usr/bin/env bash
 #
-# Per-worktree Docker Compose isolation.
-#
-# The whole project shares ONE image tag (spotify-power-browser:latest) and ONE
-# compose project name (spotify-power-browser). On a single Docker daemon that
-# means parallel Claude Code worktrees collide: a `docker compose build` in one
-# clobbers the shared :latest another is about to `run --rm tests` against, and
-# `run`/`up` share containers, networks, and the redis/mock state the tests
-# mutate.
-#
-# This gives each *Claude worktree* its own image tag + compose project by
-# writing IMAGE_TAG and COMPOSE_PROJECT_NAME into the worktree's gitignored
-# .env (compose auto-loads it). It is a deliberate NO-OP outside
-# .claude/worktrees/*, so the PRIMARY checkout keeps the shared defaults, its
-# `:latest`, and its warm redis_data volume. Live crawls (the real host Neo4j
-# graph + warm dedup) stay singular/serial there.
-#
+# Per-worktree Docker Compose isolation: writes IMAGE_TAG + COMPOSE_PROJECT_NAME
+# into the worktree's gitignored .env, and a port-stripping compose.override.yaml,
+# so parallel worktrees don't collide on one Docker daemon. Deliberate NO-OP
+# outside .claude/worktrees/* — the primary checkout keeps shared defaults.
 # Wired as a SessionStart hook in .claude/settings.json; safe to run by hand.
+# Why + details: docs/delivery.md#parallel-checkouts-the-worktree-trick
 set -euo pipefail
 
 root="${CLAUDE_PROJECT_DIR:-}"

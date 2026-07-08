@@ -15,19 +15,11 @@ class GetTracksOfAlbumResponseHandler(BaseResponseHandler):
     """Get Album Tracks: GET /v1/albums/{id}/tracks (plan 01 T6).
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-albums-tracks
 
-    Only reached for albums whose track list paginates past the 50 tracks a
-    batch-album response embeds: GetSeveralAlbumsResponseHandler follows the
-    nested album.tracks.next when present (rare -- long compilations and
-    deluxe boxes), and the api_call_engine keeps following this page's own
-    "next" at the same depth until pagination ends.
-
-    Depth semantics: pages arrive at the depth of the batch-album response
-    that spawned them (pagination is a continuation, not a hop, so the
-    spawning handler enqueues them even at depth 0). At depth >= 1,
-    follow_links batches this page's track credits at depth-1 for frontier
-    enrichment; at depth 0 the page is still persisted (write_to_neo4j runs
-    unconditionally -- no silent truncation of >50-track albums) but the
-    credits hop ends here.
+    Only reached for albums whose track list paginates past the 50 embedded
+    tracks of a batch-album response (long compilations, deluxe boxes).
+    Pagination continues at the SAME depth (a continuation, not a hop), and
+    the page is persisted even at depth 0 — no silent truncation of >50-track
+    albums. Depth rules: application/response_handlers/README.md.
     """
 
     URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/albums/{{album_id}}/tracks"
@@ -47,9 +39,6 @@ class GetTracksOfAlbumResponseHandler(BaseResponseHandler):
     @property
     def name(self):
         return f"tracks_of_album_{self.album_id}_{self.response.get('offset', 0)}"
-
-    def check_url_match(self, url):
-        return False  # sub-resource routing is by path segments in the dispatcher
 
     def write_to_disk(self):
         output_file = self.DISK_LOCATION / f"{self.clean_name}.json"

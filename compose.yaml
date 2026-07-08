@@ -1,16 +1,8 @@
 name: spotify-power-browser
-# Per-worktree isolation (parallel Claude Code sessions share one Docker daemon):
-#   IMAGE_TAG            overrides the shared image tag       (default: latest)
-#   COMPOSE_PROJECT_NAME overrides the project name that namespaces containers,
-#                        networks and volumes                 (default: the name: above)
-# .claude/settings.json's SessionStart hook writes those into a gitignored .env
-# AND a gitignored compose.override.yaml (ports: !reset []) for worktrees under
-# .claude/worktrees/*, so their stacks never collide on the shared tag/project
-# and publish no host ports (5672/15672/8000) — the per-project network already
-# connects the services. The PRIMARY checkout gets neither file: shared
-# defaults, fixed localhost ports, warm redis_data. Live crawls (the real host
-# Neo4j graph + warm dedup cache) are singular: run them from the primary
-# checkout, one at a time.
+# IMAGE_TAG and COMPOSE_PROJECT_NAME are overridden per git worktree by a
+# hook-written .env, so parallel checkouts don't collide on one Docker daemon.
+# Live crawls run from the primary checkout only. Full story:
+# docs/delivery.md#parallel-checkouts-the-worktree-trick
 services:
   rabbitmq:
     image: "rabbitmq:4-management"
@@ -41,12 +33,10 @@ services:
       timeout: 5s
       retries: 20
 
-  # Neo4j runs on the host via Neo4j Desktop (bolt://host.docker.internal:7687),
-  # not as a container — a containerized instance would collide on port 7687
-  # with the running Desktop, and the Desktop gives persistence + a graph
-  # browser for inspecting results. To go fully in-Docker instead: quit Neo4j
-  # Desktop, uncomment this service, drop the NEO4J_HOSTNAME override on
-  # responses_write_to_neo4j, and set neo4j_credentials.yaml to match NEO4J_AUTH.
+  # Neo4j runs on the host via Neo4j Desktop, not as a container (port-7687
+  # collision + the Desktop's browser/persistence — docs/architecture.md).
+  # To go fully in-Docker: quit Desktop, uncomment this, drop the
+  # NEO4J_HOSTNAME override on responses_write_to_neo4j, match NEO4J_AUTH.
   #
   # neo4j:
   #   image: "neo4j:community"
@@ -83,16 +73,10 @@ services:
       REDIS_HOSTNAME: ${REDIS_HOSTNAME:-redis}
     command: python3 application/spotify_authentication/api_authorization_web_service.py
     healthcheck:
-      # Healthy only once the OAuth flow has written an access token. This
-      # gates the pipeline so a single `docker compose up` waits for the human
-      # to authorize before any crawling begins. The long start_period keeps the
-      # container in "starting" (not "unhealthy") while it waits for a human, so
-      # `docker compose up` won't abort the gated services if authorization takes
-      # a while; the first successful probe flips it healthy immediately.
-      #
-      # Plan 06 keeps this file as the PRIMARY user's mirror (token_store.py):
-      # the first account to authorize writes both secrets/users/<id>/ and this
-      # legacy path, so multi-user auth does not break the one-command `up`.
+      # The auth gate: healthy only once the OAuth flow has written a token,
+      # so one `docker compose up` waits for the human to authorize. The long
+      # start_period keeps it "starting" (not "unhealthy") meanwhile. The file
+      # checked is the primary user's legacy mirror — see docs/auth.md.
       test: ["CMD-SHELL", "test -s /src/secrets/spotify_api_token.secret"]
       interval: 5s
       timeout: 5s

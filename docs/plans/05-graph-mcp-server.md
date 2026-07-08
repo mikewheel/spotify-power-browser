@@ -51,7 +51,7 @@ curated Cypher pack — same files as `application/graph_database/queries/`).
 Discover Weekly) hits the 2024-11 restriction on algorithmic/editorial
 playlists *for new apps*. Whether this 2023 app is grandfathered is **unknown —
 probe it** (one GET of the Release Radar playlist id with the live token;
-extend `_probe_api_surface.py`). If blocked: the fallback is "Like the songs
+extend `scripts/probes/probe_api_surface.py`). If blocked: the fallback is "Like the songs
 you care about / add to a personal playlist" → personal playlists read fine.
 
 ### Registration

@@ -12,19 +12,11 @@ class GetAlbumsOfArtistResponseHandler(BaseResponseHandler):
     """Get Artist's Albums: GET /v1/artists/{id}/albums (plan 01 T5).
     Docs: https://developer.spotify.com/documentation/web-api/reference/get-an-artists-albums
 
-    An album-id harvest, not a resource in itself: the response carries
-    simplified album objects, so follow_links batches the ids through
-    /v1/albums?ids= (chunks of 20 via the request_batch machinery) and the
-    full objects -- embedded track lists included -- are written to Neo4j by
-    GetSeveralAlbumsResponseHandler. Page-level pagination ("next") is
-    re-queued by the api_call_engine at the same depth, like every handler.
-
-    Depth semantics (plan 01, no unbounded recursion): discography seeds are
-    published at depth 2 (see SpotifyRequestFactory.DISCOGRAPHY_SEED_DEPTH),
-    so the album batches leave here at depth 1 -- deep enough for the batch
-    handler to run the frontier artist sweep (depth 0, terminal), and no
-    deeper. Nothing on this path ever publishes another /v1/artists/{id}/albums
-    URL, so a frontier artist's own discography is never crawled.
+    An album-id harvest: follow_links batches the ids through /v1/albums?ids=
+    and the full objects are written by GetSeveralAlbumsResponseHandler.
+    Invariant: only the discography seeder publishes this URL shape, so a
+    frontier artist's own discography is never crawled — depth chain and
+    rationale in application/response_handlers/README.md.
     """
 
     URL_PATTERN = f"{SPOTIFY_API_BASE_URL}/v1/artists/{{artist_id}}/albums"
@@ -41,9 +33,6 @@ class GetAlbumsOfArtistResponseHandler(BaseResponseHandler):
     @property
     def name(self):
         return f"albums_of_artist_{self.artist_id}_{self.response.get('offset', 0)}"
-
-    def check_url_match(self, url):
-        return False  # sub-resource routing is by path segments in the dispatcher
 
     def write_to_disk(self):
         output_file = self.DISK_LOCATION / f"{self.clean_name}.json"

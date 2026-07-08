@@ -16,7 +16,7 @@ the two. NOT part of the application; safe to delete.
     docker run --rm --add-host host.docker.internal:host-gateway \
       -e NEO4J_HOSTNAME=host.docker.internal -e PYTHONPATH=/src -w /src \
       -v "$PWD/secrets:/src/secrets" -v "$PWD:/probe" \
-      spotify-power-browser:${IMAGE_TAG:-latest} python3 /probe/_probe_api_surface.py
+      spotify-power-browser:${IMAGE_TAG:-latest} python3 /probe/scripts/probes/probe_api_surface.py
 """
 import textwrap
 import requests

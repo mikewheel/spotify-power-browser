@@ -13,19 +13,12 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def guard_real_secrets_untouched():
-    """Fail any test that writes token files under the REAL secrets/ dir.
+    """Fail any test that changes token files under the REAL secrets/ dir.
 
-    Regression guard for the secrets-clobber bug: token-store / OAuth / refresh
-    tests MUST monkeypatch the token paths (token_store.USERS_DIR,
-    PRIMARY_USER_FILE, LEGACY_*_TOKEN_FILE and refresh_token.SPOTIFY_*_FILE) to
-    tmp_path. A test that reaches the real SECRETS_DIR silently overwrites the
-    live app's Spotify tokens — the primary<->legacy two-way mirror in
-    refresh_token.py made an incompletely-isolated refresh test do exactly that,
-    turning secrets/spotify_api_token.secret (and the primary's namespaced copy)
-    into the literal "mock-access-token" on every `docker compose run tests`.
-
-    Snapshot the real token files before each test and assert they are
-    byte-for-byte unchanged after (covers writes, creations, and deletions).
+    Auth-adjacent tests MUST monkeypatch the token paths to tmp_path (see
+    tests/test_token_store.py::store); this snapshot-and-compare tripwire
+    turns a forgotten monkeypatch into a loud failure instead of silently
+    clobbered live tokens (the PR #27 bug — docs/testing.md has the story).
     """
     from application import config
 

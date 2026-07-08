@@ -58,11 +58,9 @@ def bind_queue_to_exchange(
     :return: the name of the queue as a string
     """
 
-    # A NAMED queue is a shared, durable work queue (make_api_call, the response
-    # topics): it must NOT be tied to the declaring connection, or a single
-    # consumer's dropped connection deletes the queue and every request still
-    # sitting in it (the discography-crawl failure: an engine reconnect wiped
-    # ~950 queued album-batch/frontier-sweep requests). An UNNAMED queue is a
+    # A NAMED queue is a shared durable work queue and must NOT be tied to the
+    # declaring connection, or one consumer's drop deletes the queue and its
+    # backlog (see application/message_queue/README.md). An UNNAMED queue is a
     # throwaway reply queue and stays exclusive/auto-deleting.
     is_named = queue_name is not None
     result = channel.queue_declare(
