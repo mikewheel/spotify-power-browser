@@ -6,17 +6,17 @@ and delegation-ready: hand one to a coding agent with this README for context._
 
 ## The plans
 
-| # | Plan | One-liner | Effort |
+| # | Plan | One-liner | Status |
 |---|------|-----------|--------|
-| 01 | [Adjacent-artist discovery](01-adjacent-artist-discovery.md) | Find unknown artists two collab-hops from your taste | M–L |
-| 02 | [Listening completeness](02-listening-completeness.md) | Full listening history + "how much of this artist have I really heard?" | M + waiting |
-| 03 | [Entity mastering](03-entity-mastering.md) | Roll deluxe/single/clean-explicit re-releases into canonical Songs | M |
-| 04 | [Annotations & DJ sets](04-annotations-and-dj-sets.md) | Timestamped song notes → DJ set planning → performance HUD | XL (phased) |
-| 05 | [Graph MCP server](05-graph-mcp-server.md) | Let AI query your taste graph with purpose-built tools | S–M |
-| 06 | [Multiplayer](06-multiplayer.md) | Two users, one graph — intersect and diff musical taste | L |
-| 07 | [Beyond Spotify](07-beyond-spotify.md) | Local files + SoundCloud in one platform-agnostic graph | XL (phased) |
-| 08 | [Playlist write-back](08-playlist-writeback.md) _(bonus)_ | Every insight becomes a real Spotify playlist | S–M |
-| 09 | [Taste over time](09-taste-over-time.md) _(bonus)_ | Your musical eras, drift, and year-in-review from timestamps you already have | S–M |
+| 01 | [Adjacent-artist discovery](01-adjacent-artist-discovery.md) | Find unknown artists two collab-hops from your taste | **Shipped** (PR #22) |
+| 02 | [Listening completeness](02-listening-completeness.md) | Full listening history + "how much of this artist have I really heard?" | Pending — blocked on the streaming-history export |
+| 03 | [Entity mastering](03-entity-mastering.md) | Roll deluxe/single/clean-explicit re-releases into canonical Songs | **Shipped** (PR #20) |
+| 04 | [Annotations & DJ sets](04-annotations-and-dj-sets.md) | Timestamped song notes → DJ set planning → performance HUD | **Phases A+B shipped** (PR #21); C+D pending |
+| 05 | [Graph MCP server](05-graph-mcp-server.md) | Let AI query your taste graph with purpose-built tools | **Shipped** (PR #19) |
+| 06 | [Multiplayer](06-multiplayer.md) | Two users, one graph — intersect and diff musical taste | **Shipped** (PR #24) |
+| 07 | [Beyond Spotify](07-beyond-spotify.md) | Local files + SoundCloud in one platform-agnostic graph | Pending (XL, phased) |
+| 08 | [Playlist write-back](08-playlist-writeback.md) | Every insight becomes a real Spotify playlist | **Shipped** (PR #23) |
+| 09 | [Taste over time](09-taste-over-time.md) | Your musical eras, drift, and year-in-review from timestamps you already have | Pending |
 
 Effort legend: **S** ≤1 day · **M** 2–4 days · **L** 1–2 weeks · **XL** multi-week, phased.
 
@@ -52,8 +52,7 @@ any of this with `scripts/probes/probe_api_surface.py` before building on it.
 3. **ISRC + popularity enrichment backfill** (plans 03 §T1–T3, 01 §T2): ~500
    batch calls total, minutes of runtime, and nearly every plan's data quality
    improves. Do it before the next big crawl.
-4. **Merge PR #16 first** (token-refresh client-auth fix) — every crawl longer
-   than ~1h dies without it.
+4. ~~Merge PR #16 first~~ — merged; token refresh carries client auth now.
 
 ## Dependency map
 
